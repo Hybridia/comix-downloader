@@ -96,7 +96,10 @@ def create_comic_info_xml(
         SubElement(root, "AgeRating").text = "Adults Only 18+"
     
     # Web link
-    SubElement(root, "Web").text = f"https://comix.to/title/{manga.hash_id}-{manga.slug}"
+    if manga.source_url:
+        SubElement(root, "Web").text = manga.source_url
+    elif manga.hash_id and manga.slug:
+        SubElement(root, "Web").text = f"https://comix.to/title/{manga.hash_id}-{manga.slug}"
     
     # Format to pretty XML
     xml_str = tostring(root, encoding="unicode")

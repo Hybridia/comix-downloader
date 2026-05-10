@@ -39,11 +39,13 @@ Item {
             
             Item { Layout.fillWidth: true }
             
-            // CLEAR HISTORY BUTTON
+            // CLEAR HISTORY BUTTON. Enabled as soon as ANY job is
+            // finished so a completed download can be dismissed
+            // without waiting for parallel ones to finish first.
             Button {
                 text: "Clear Finished"
                 onClicked: progressPanel.reset()
-                enabled: progressPanel.isFinished
+                enabled: progressPanel.hasFinishedJob
             }
         }
         

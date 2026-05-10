@@ -17,7 +17,14 @@ from PyQt6.QtQml import QQmlApplicationEngine
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QFontDatabase
 
-from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge
+from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge, LibraryBridge
+from src.utils.logger import setup_logging
+from src.utils.config import ConfigManager
+
+# Mirror CLI behaviour: honour `enable_logs` from config.json. The GUI was
+# previously skipping this, so logger.info / logger.warning calls in
+# providers were swallowed even with the toggle on.
+setup_logging(enable=bool(ConfigManager().get("enable_logs", False)))
 
 
 def load_fonts():
@@ -75,11 +82,17 @@ def main():
     manga_bridge = MangaBridge()
     download_bridge = DownloadBridge()
     settings_bridge = SettingsBridge()
-    
+    library_bridge = LibraryBridge()
+    # The Library "Update" flow needs to invoke DownloadBridge once it
+    # has diffed local vs remote chapters; wire that connection up here
+    # so QML doesn't need to know about it.
+    library_bridge.attach_download_bridge(download_bridge)
+
     # Expose bridges to QML
     engine.rootContext().setContextProperty("MangaBridge", manga_bridge)
     engine.rootContext().setContextProperty("DownloadBridge", download_bridge)
     engine.rootContext().setContextProperty("SettingsBridge", settings_bridge)
+    engine.rootContext().setContextProperty("LibraryBridge", library_bridge)
     
     # Add QML import path
     qml_dir = Path(__file__).parent / "qml"

@@ -7,9 +7,10 @@ Rectangle {
     
     signal browseClicked()
     signal downloadsClicked()
+    signal libraryClicked()
     signal settingsClicked()
-    
-    property int activeTab: 0 // 0: Browse, 1: Downloads
+
+    property int activeTab: 0 // 0: Browse, 1: Downloads, 2: Library
     
     // Theme colors (mirroring Theme.qml for consistency)
     readonly property color bgDeep: "#0A0A0C"
@@ -64,6 +65,13 @@ Rectangle {
                 label: "Downloads"
                 isActive: root.activeTab === 1
                 onClicked: { root.activeTab = 1; root.downloadsClicked() }
+            }
+
+            NavButton {
+                icon: "📚"
+                label: "Library"
+                isActive: root.activeTab === 2
+                onClicked: { root.activeTab = 2; root.libraryClicked() }
             }
         }
         

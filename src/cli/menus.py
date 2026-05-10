@@ -51,6 +51,9 @@ class MainMenu:
     @staticmethod
     def get_manga_url() -> str:
         """Prompt for manga URL."""
+        console.print(
+            "[dim]Supported: comix.to/title/..., nhentai.to/g/<id>/[/]"
+        )
         return Prompt.ask(
             "\n[bold cyan]Enter manga URL[/]",
             default=""

@@ -1,151 +1,394 @@
 """
-Session management with FlareSolverr fallback.
+HTTP session manager.
+
+Three layered defenses against blocks, in order:
+
+1. **curl_cffi browser impersonation** — sends real Chrome TLS / HTTP-2 /
+   header fingerprints, which is enough to defeat most Cloudflare
+   fingerprint challenges in-process. No external service required.
+
+2. **Adaptive per-host rate limiter** — token bucket per hostname; on
+   429/403 we cut the rate in half, on a streak of 200s we slowly
+   recover. Stops the "after N downloads my IP gets blocked" pattern.
+
+3. **FlareSolverr fallback** — only invoked when curl_cffi still hits a
+   real JS challenge. If the user isn't running FlareSolverr we log it
+   at debug, not error.
 """
 
-import requests
 import time
+import random
 import threading
+from urllib.parse import urlparse
 from typing import Any
 from .logger import get_logger
 
 logger = get_logger(__name__)
 
-class SessionManager:
-    """Manages requests session with FlareSolverr fallback for Cloudflare."""
-    
-    def __init__(self):
-        self.session = requests.Session()
-        self._lock = threading.Lock()
-        # Set default headers - using a more realistic, modern User-Agent
-        self.session.headers.update({
-            "Referer": "https://comix.to/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-        })
-        from .config import ConfigManager
-        self._config = ConfigManager()
-        self.flaresolverr_url = self._config.get("flaresolverr_url", "http://localhost:8191/v1")
-        self._flaresolverr_triggered = False
+# Standard requests is always available — used as fallback HTTP client
+# and for the FlareSolverr management API regardless of mode.
+import requests as std_requests
 
-    def get(self, url: str, **kwargs: Any) -> requests.Response:
-        """Execute a GET request, falling back to FlareSolverr if blocked."""
+try:
+    from curl_cffi import requests as cffi_requests
+    HAS_CURL_CFFI = True
+except Exception:  # pragma: no cover - optional dep
+    cffi_requests = None
+    HAS_CURL_CFFI = False
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+class _TokenBucket:
+    """Thread-safe token bucket with blocking acquire."""
+
+    def __init__(self, rate: float, capacity: float | None = None):
+        self.rate = float(rate)
+        self.capacity = float(capacity) if capacity else max(1.0, self.rate)
+        self.tokens = self.capacity
+        self.last_refill = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self, tokens: float = 1.0) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self.tokens = min(
+                    self.capacity,
+                    self.tokens + (now - self.last_refill) * self.rate,
+                )
+                self.last_refill = now
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return
+                deficit = tokens - self.tokens
+                wait = deficit / self.rate if self.rate > 0 else 0.5
+            jitter = random.uniform(0, min(0.1, wait * 0.2))
+            time.sleep(wait + jitter)
+
+
+class _AdaptiveLimiter:
+    """Token bucket whose rate adapts to throttle / success signals."""
+
+    # How many consecutive successes before nudging the rate back up
+    _RECOVERY_AFTER = 25
+    # Multiplicative decrease / increase factors
+    _DECREASE = 0.5
+    _INCREASE = 1.25
+
+    def __init__(self, base_rate: float, min_rate: float, max_rate: float):
+        self.base_rate = base_rate
+        self.min_rate = min_rate
+        self.max_rate = max_rate
+        self.bucket = _TokenBucket(base_rate)
+        self._success = 0
+        self._lock = threading.Lock()
+
+    @property
+    def rate(self) -> float:
+        return self.bucket.rate
+
+    def acquire(self) -> None:
+        self.bucket.acquire(1)
+
+    def report_success(self) -> None:
+        with self._lock:
+            self._success += 1
+            if self._success >= self._RECOVERY_AFTER and self.bucket.rate < self.max_rate:
+                new_rate = min(self.max_rate, self.bucket.rate * self._INCREASE)
+                if new_rate != self.bucket.rate:
+                    logger.debug(
+                        f"Rate recovering: {self.bucket.rate:.2f} -> {new_rate:.2f} req/s"
+                    )
+                    self.bucket.rate = new_rate
+                self._success = 0
+
+    def report_throttle(self) -> None:
+        with self._lock:
+            self._success = 0
+            new_rate = max(self.min_rate, self.bucket.rate * self._DECREASE)
+            if new_rate != self.bucket.rate:
+                logger.warning(
+                    f"Throttle detected — slowing down: "
+                    f"{self.bucket.rate:.2f} -> {new_rate:.2f} req/s"
+                )
+                self.bucket.rate = new_rate
+
+
+class _HostRateLimiter:
+    """Lazy per-host AdaptiveLimiter dictionary."""
+
+    def __init__(self, base_rate: float, min_rate: float, max_rate: float):
+        self.base_rate = base_rate
+        self.min_rate = min_rate
+        self.max_rate = max_rate
+        self._limiters: dict[str, _AdaptiveLimiter] = {}
+        self._lock = threading.Lock()
+
+    def for_host(self, host: str) -> _AdaptiveLimiter:
+        with self._lock:
+            limiter = self._limiters.get(host)
+            if limiter is None:
+                limiter = _AdaptiveLimiter(self.base_rate, self.min_rate, self.max_rate)
+                self._limiters[host] = limiter
+            return limiter
+
+
+def _hostname(url: str) -> str:
+    return urlparse(url).hostname or url
+
+
+# ---------------------------------------------------------------------------
+# Session manager
+# ---------------------------------------------------------------------------
+
+
+class SessionManager:
+    """
+    Single HTTP session with browser fingerprinting + adaptive rate limiting.
+    Falls back to FlareSolverr only when a real challenge is detected.
+    """
+
+    _CHALLENGE_MARKERS = (
+        "Checking your browser",
+        "Just a moment",
+        "cf-browser-verification",
+        "cf-mitigated",
+        "Attention Required! | Cloudflare",
+    )
+
+    def __init__(self):
+        from .config import ConfigManager
+
+        self._config = ConfigManager()
+        self.flaresolverr_url = self._config.get(
+            "flaresolverr_url", "http://localhost:8191/v1"
+        )
+        self.use_curl_cffi = bool(self._config.get("use_curl_cffi", True)) and HAS_CURL_CFFI
+        self.impersonate = self._config.get("impersonate", "chrome120")
+        self.verify_ssl = bool(self._config.get("verify_ssl", True))
+
+        base_rate = float(self._config.get("requests_per_second_per_host", 4.0))
+        min_rate = float(self._config.get("min_requests_per_second", 0.5))
+        max_rate = float(self._config.get("max_requests_per_second", base_rate * 2))
+        self._rate = _HostRateLimiter(base_rate, min_rate, max_rate)
+
+        self._lock = threading.Lock()
+        self._fs_warned = False  # don't spam if FlareSolverr is offline
+        self._session = self._make_session()
+
+        if self.use_curl_cffi:
+            logger.info(f"HTTP client: curl_cffi (impersonate={self.impersonate})")
+        elif self._config.get("use_curl_cffi", True) and not HAS_CURL_CFFI:
+            logger.warning(
+                "curl_cffi not installed — falling back to requests. "
+                "Install with: pip install curl_cffi"
+            )
+        else:
+            logger.info("HTTP client: requests")
+
+    # -- session construction -----------------------------------------
+
+    def _make_session(self):
+        if self.use_curl_cffi:
+            try:
+                session = cffi_requests.Session(impersonate=self.impersonate)
+            except Exception as e:
+                logger.warning(
+                    f"curl_cffi init failed ({e}); falling back to requests"
+                )
+                self.use_curl_cffi = False
+                session = std_requests.Session()
+        else:
+            session = std_requests.Session()
+
+        # Common defaults. With curl_cffi the impersonation provides a
+        # matching User-Agent, so we don't override it there.
+        defaults = {
+            "Referer": "https://comix.to/",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        if not self.use_curl_cffi:
+            defaults["User-Agent"] = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        session.headers.update(defaults)
+        return session
+
+    # -- public API ---------------------------------------------------
+
+    def get(self, url: str, **kwargs: Any):
+        """Execute a GET request with rate limiting + auto-bypass on blocks."""
         force_flare = kwargs.pop("force_flare", False)
-        
+        host = _hostname(url)
+        limiter = self._rate.for_host(host)
+
         if force_flare:
             with self._lock:
-                logger.info(f"Forcing FlareSolverr bypass for {url}...")
+                logger.info(f"Forcing FlareSolverr bypass for {url}")
                 if self._solve_cloudflare(url):
-                    return self.session.get(url, **kwargs)
-                else:
-                    logger.error("Forced FlareSolverr bypass failed. Attempting normal request...")
+                    limiter.acquire()
+                    return self._raw_get(url, **kwargs)
+                logger.error("Forced FlareSolverr bypass failed; trying direct request.")
 
+        limiter.acquire()
         try:
-            response = self.session.get(url, **kwargs)
-        except requests.exceptions.RequestException as e:
+            response = self._raw_get(url, **kwargs)
+        except Exception as e:
             logger.error(f"Request failed: {e}")
             raise
 
-        # Detection logic for Cloudflare / blocking
+        # --- analyze response --------------------------------------
         is_cloudflare = "cloudflare" in response.headers.get("Server", "").lower()
-        is_error_status = response.status_code in [403, 503, 429]
-        # Only check for textual challenges if the response is actually a text format
-        # Parsing large binary images as text is extremely slow and causes hangs
+        is_throttle = response.status_code in (429, 503)
+        is_blocked = response.status_code == 403
+        is_error = response.status_code in (403, 429, 503)
+
         content_type = response.headers.get("Content-Type", "").lower()
         is_text = "text/html" in content_type or "application/json" in content_type
-        
         has_challenge = False
-        if is_text and any(text in response.text for text in ["Checking your browser", "Just a moment", "cf-browser-verification", "Ray ID:"]):
-            has_challenge = True
-        
-        # Also check for empty/null results if it looks like an API-level block (specific to Comix)
+        if is_text:
+            try:
+                if any(m in response.text for m in self._CHALLENGE_MARKERS):
+                    has_challenge = True
+            except Exception:
+                pass
+
         is_empty_result = False
-        try:
-            if response.status_code == 200 and "application/json" in content_type:
+        if response.status_code == 200 and "application/json" in content_type:
+            try:
                 json_data = response.json()
                 if json_data.get("result") is None and json_data.get("status") == "error":
                     is_empty_result = True
-                    logger.warning(f"API returned error status for {url}. Might need bypass.")
-        except Exception:
-            pass
+                    logger.warning(f"API soft-block detected for {url}")
+            except Exception:
+                pass
 
-        if is_error_status or has_challenge or is_empty_result:
+        # --- adaptive feedback -------------------------------------
+        if is_throttle or is_blocked:
+            limiter.report_throttle()
+        elif response.status_code == 200 and not has_challenge and not is_empty_result:
+            limiter.report_success()
+
+        # --- escalation --------------------------------------------
+        if is_error or has_challenge or is_empty_result:
             if is_cloudflare or has_challenge or is_empty_result:
                 with self._lock:
-                    # Check again inside lock to see if another thread already solved it
-                    logger.warning(f"Block or challenge detected for {url} (Status: {response.status_code}). Attempting FlareSolverr bypass...")
+                    logger.warning(
+                        f"Block/challenge for {url} (status={response.status_code}); "
+                        f"trying FlareSolverr fallback..."
+                    )
                     if self._solve_cloudflare(url):
-                        # Retry request
-                        logger.debug(f"Retrying request to {url} after FlareSolverr bypass.")
-                        response = self.session.get(url, **kwargs)
-                    else:
-                        logger.error("FlareSolverr bypass failed or FlareSolverr not running.")
-            elif response.status_code == 429:
-                logger.warning(f"Rate limited (429) for {url}. Waiting 5 seconds...")
-                time.sleep(5)
-                response = self.session.get(url, **kwargs)
-                
+                        limiter.acquire()
+                        response = self._raw_get(url, **kwargs)
+            elif is_throttle:
+                wait = random.uniform(3.0, 8.0)
+                logger.warning(
+                    f"Server throttled (status={response.status_code}); backing off {wait:.1f}s"
+                )
+                time.sleep(wait)
+                limiter.acquire()
+                response = self._raw_get(url, **kwargs)
+
         return response
 
+    # -- internals ----------------------------------------------------
+
+    def _raw_get(self, url: str, **kwargs: Any):
+        """Plain GET against the underlying session, with no policy."""
+        kwargs.setdefault("verify", self.verify_ssl)
+        return self._session.get(url, **kwargs)
+
     def _solve_cloudflare(self, target_url: str) -> bool:
-        """Use FlareSolverr to get clearance cookies."""
+        """Use FlareSolverr to acquire clearance cookies."""
         try:
-            # Create session - using shorter timeout for connection to avoid long hangs
-            logger.debug(f"Creating FlareSolverr session at {self.flaresolverr_url}...")
-            session_res = requests.post(self.flaresolverr_url, json={
-                "cmd": "sessions.create"
-            }, timeout=10).json()
-            
+            session_res = std_requests.post(
+                self.flaresolverr_url,
+                json={"cmd": "sessions.create"},
+                timeout=10,
+            ).json()
+
             if session_res.get("status") != "ok":
-                logger.error(f"Failed to create FlareSolverr session: {session_res}")
+                logger.error(f"FlareSolverr session.create failed: {session_res}")
                 return False
-                
             session_id = session_res.get("session")
-            
-            # Request URL via FlareSolverr
-            logger.debug(f"Requesting {target_url} via FlareSolverr...")
-            req_res = requests.post(self.flaresolverr_url, json={
-                "cmd": "request.get",
-                "url": target_url,
-                "session": session_id,
-                "maxTimeout": 60000
-            }, timeout=65).json()
-            
+
+            req_res = std_requests.post(
+                self.flaresolverr_url,
+                json={
+                    "cmd": "request.get",
+                    "url": target_url,
+                    "session": session_id,
+                    "maxTimeout": 60000,
+                },
+                timeout=65,
+            ).json()
+
+            success = False
             if req_res.get("status") == "ok":
                 solution = req_res.get("solution", {})
-                
-                # Update cookies
                 cookies = solution.get("cookies", [])
-                for cookie in cookies:
-                    self.session.cookies.set(cookie["name"], cookie["value"], domain=cookie.get("domain", ""))
-                    
-                # Update user agent
-                user_agent = solution.get("userAgent")
-                if user_agent:
-                    self.session.headers.update({"User-Agent": user_agent})
-                    
-                logger.info(f"Successfully bypassed Cloudflare. Got {len(cookies)} cookies.")
+                for ck in cookies:
+                    self._session.cookies.set(
+                        ck["name"], ck["value"], domain=ck.get("domain", "")
+                    )
+                ua = solution.get("userAgent")
+                if ua:
+                    self._session.headers.update({"User-Agent": ua})
+                logger.info(f"FlareSolverr bypass OK ({len(cookies)} cookies)")
                 success = True
             else:
                 logger.error(f"FlareSolverr request failed: {req_res}")
-                success = False
-                
-            # Destroy session
-            requests.post(self.flaresolverr_url, json={
-                "cmd": "sessions.destroy",
-                "session": session_id
-            }, timeout=10)
-            
+
+            std_requests.post(
+                self.flaresolverr_url,
+                json={"cmd": "sessions.destroy", "session": session_id},
+                timeout=10,
+            )
             return success
-            
+
+        except std_requests.exceptions.ConnectionError:
+            # FlareSolverr not running — that's fine in the new model.
+            # Warn once, then go quiet.
+            if not self._fs_warned:
+                logger.info(
+                    "FlareSolverr not reachable at "
+                    f"{self.flaresolverr_url}. "
+                    "It's only needed if curl_cffi can't bypass a hard challenge."
+                )
+                self._fs_warned = True
+            return False
         except Exception as e:
-            logger.error(f"Error during FlareSolverr bypass: {e}")
+            logger.warning(f"FlareSolverr error: {e}")
             return False
 
-# Singleton instance
-_session_manager = None
+
+# ---------------------------------------------------------------------------
+# Singleton accessor
+# ---------------------------------------------------------------------------
+
+
+_session_manager: SessionManager | None = None
+_session_lock = threading.Lock()
+
 
 def get_session() -> SessionManager:
     """Get the singleton session manager."""
     global _session_manager
     if _session_manager is None:
-        _session_manager = SessionManager()
+        with _session_lock:
+            if _session_manager is None:
+                _session_manager = SessionManager()
     return _session_manager
+
+
+def reset_session() -> None:
+    """Drop the cached session — useful when settings change at runtime."""
+    global _session_manager
+    with _session_lock:
+        _session_manager = None

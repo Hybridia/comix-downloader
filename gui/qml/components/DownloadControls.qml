@@ -8,9 +8,8 @@ Rectangle {
     property var scanlators: ["Any"]
     property string scanlatorPreference: "Any"
     property string scanlatorFilter: "Any"
-    
+
     signal downloadClicked()
-    signal settingsClicked()
     signal filterChanged(string filter)
     
     // Theme colors
@@ -30,33 +29,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 16
-        
-        // SETTINGS BUTTON
-        Rectangle {
-            Layout.preferredWidth: 100
-            Layout.preferredHeight: 44
-            radius: 8
-            color: settingsArea.containsMouse ? bgElevated : "transparent"
-            border.color: textTertiary; border.width: 1
-            
-            Behavior on color { ColorAnimation { duration: 150 } }
-            
-            RowLayout {
-                anchors.centerIn: parent
-                spacing: 6
-                Text { text: "⚙️"; font.pixelSize: 14 }
-                Text { text: "Settings"; font.family: "Segoe UI"; font.pixelSize: 13; color: textSecondary }
-            }
-            
-            MouseArea {
-                id: settingsArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.settingsClicked()
-            }
-        }
-        
+
         // SCANLATOR PREFERENCE (for download priority)
         ColumnLayout {
             spacing: 4

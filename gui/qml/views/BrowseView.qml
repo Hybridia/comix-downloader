@@ -19,7 +19,7 @@ Item {
         // URL INPUT
         UrlInput {
             Layout.fillWidth: true
-            Layout.preferredHeight: 56
+            Layout.preferredHeight: 92
             onFetchRequested: (url) => MangaBridge.fetchManga(url)
         }
         
@@ -52,7 +52,6 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
             scanlators: chapterListComp.getScanlators()
-            onSettingsClicked: settingsDrawer.isOpen = true
             onFilterChanged: (filter) => chapterListComp.applyFilter(filter)
             onDownloadClicked: {
                 var selected = chapterListComp.getSelectedChapters()

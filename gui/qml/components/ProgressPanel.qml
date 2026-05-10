@@ -2,172 +2,189 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
+// Container that hosts one JobProgressCard per active download.
+//
+// All slots take a ``jobId`` first argument so updates from concurrent
+// workers are routed to the right card. Cards are created lazily on
+// the first ``jobStarted`` signal and stay around (in their finished
+// state) until the user clicks "Clear Finished".
 Rectangle {
     id: root
-    
-    property string currentChapter: ""
-    property int completedChapters: 0
-    property int totalChapters: 0
+
+    // Aggregated status the parent view (or summary widgets) might
+    // care about. When a single download is active these match its
+    // values; when several are active, ``isFinished`` only flips true
+    // after every job has finished. ``hasFinishedJob`` is the looser
+    // signal — true as soon as ONE card is done — so the "Clear
+    // Finished" button can light up even while other downloads run.
     property bool isFinished: false
-    property int successCount: 0
-    property int failCount: 0
-    
-    // Theme colors
+    property bool hasFinishedJob: false
+
     readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color accentHighlight: "#FFD93D"
     readonly property color textPrimary: "#F5F5F0"
     readonly property color textSecondary: "#8B8B99"
     readonly property color success: "#7CB342"
-    
+
     color: bgCard
     radius: 12
-    
-    ListModel { id: taskModel }
-    
+
+    // ── job state ──────────────────────────────────────────────────
+    // ListModel rows are { jobId } only — they exist so the Repeater
+    // re-renders when we add/remove jobs. The actual card instance is
+    // looked up in ``cardsByJobId`` so we can call its slots from
+    // the routers below.
+    ListModel { id: jobsModel }
+    property var cardsByJobId: ({})
+
+    // Helpers for the section showing aggregated state when one or
+    // more jobs are still running.
+    function _activeJobCount() {
+        var n = 0
+        for (var i = 0; i < jobsModel.count; i++) {
+            var c = cardsByJobId[jobsModel.get(i).jobId]
+            if (c && !c.isFinished) n++
+        }
+        return n
+    }
+    function _refreshAggregateState() {
+        if (jobsModel.count === 0) {
+            isFinished = false
+            hasFinishedJob = false
+            return
+        }
+        var anyDone = false
+        var allDone = true
+        for (var i = 0; i < jobsModel.count; i++) {
+            var c = cardsByJobId[jobsModel.get(i).jobId]
+            if (!c) continue
+            if (c.isFinished) anyDone = true
+            else allDone = false
+        }
+        isFinished = allDone
+        hasFinishedJob = anyDone
+    }
+
+    // ── public API: routers from the bridge signals ───────────────
+
     function reset() {
-        currentChapter = ""; completedChapters = 0; totalChapters = 0
-        isFinished = false; successCount = 0; failCount = 0
-        taskModel.clear()
-    }
-    
-    function updateProgress(completed, total) {
-        completedChapters = completed; totalChapters = total
-    }
-    
-    function setChapterStatus(name, s, message) {
-        currentChapter = name
-        if (s) successCount++; else failCount++
-        
-        // Mark task as complete in the list
-        for (var i = 0; i < taskModel.count; i++) {
-            if (taskModel.get(i).name === name) {
-                taskModel.setProperty(i, "status", s ? "Complete" : "Failed")
-                taskModel.setProperty(i, "progress", 100)
-                break
+        // Only clear FINISHED cards. Active downloads stay so the user
+        // can see them; "Clear Finished" is the natural mental model
+        // when several jobs share the panel.
+        for (var i = jobsModel.count - 1; i >= 0; i--) {
+            var jid = jobsModel.get(i).jobId
+            var c = cardsByJobId[jid]
+            if (c && c.isFinished) {
+                c.destroy()
+                delete cardsByJobId[jid]
+                jobsModel.remove(i)
             }
         }
+        _refreshAggregateState()
     }
-    
-    function updateChapterProgress(name, current, total) {
-        var found = false
-        for (var i = 0; i < taskModel.count; i++) {
-            if (taskModel.get(i).name === name) {
-                taskModel.setProperty(i, "progress", (current / total) * 100)
-                taskModel.setProperty(i, "details", current + " / " + total + " images")
-                found = true
-                break
-            }
+
+    function registerJob(jobId, title, posterUrl, totalChapters) {
+        if (cardsByJobId[jobId]) return  // dedupe: signal can re-fire on resume
+        var card = jobCardComponent.createObject(cardsContainer, {
+            "jobId": jobId,
+            "title": title,
+            "posterUrl": posterUrl,
+            "totalChapters": totalChapters,
+        })
+        cardsByJobId[jobId] = card
+        jobsModel.append({ "jobId": jobId })
+        _refreshAggregateState()
+    }
+
+    function routeOverallProgress(jobId, current, total) {
+        var c = cardsByJobId[jobId]
+        if (c) c.updateProgress(current, total)
+    }
+    function routeChapterStarted(jobId, name) {
+        var c = cardsByJobId[jobId]
+        if (c) c.registerChapter(name)
+    }
+    function routeChapterProgress(jobId, name, current, total) {
+        var c = cardsByJobId[jobId]
+        if (c) c.updateChapterProgress(name, current, total)
+    }
+    function routeChapterComplete(jobId, name, ok, message) {
+        var c = cardsByJobId[jobId]
+        if (c) c.setChapterStatus(name, ok, message)
+    }
+    function routeJobFinished(jobId, successful, failed) {
+        var c = cardsByJobId[jobId]
+        if (c) {
+            c.setFinished(successful, failed)
+            _refreshAggregateState()
         }
-        
-        if (!found) {
-            taskModel.append({
-                "name": name,
-                "progress": (current / total) * 100,
-                "details": current + " / " + total + " images",
-                "status": "Downloading"
-            })
+    }
+
+    // Card factory — one Component instantiated per job.
+    Component {
+        id: jobCardComponent
+        JobProgressCard {
+            Layout.fillWidth: true
         }
     }
-    
-    function setFinished(successful, failed) {
-        isFinished = true; successCount = successful; failCount = failed
-    }
-    
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 8
-        
-        // HEADER
+        spacing: 12
+
+        // HEADER — summarises across jobs while any are active.
         RowLayout {
             Layout.fillWidth: true
             Text {
-                text: isFinished ? "DOWNLOAD COMPLETE" : "DOWNLOADING"
-                font.family: "Segoe UI"; font.pixelSize: 18; font.weight: Font.DemiBold
-                color: isFinished ? success : textPrimary
+                text: {
+                    if (jobsModel.count === 0) return "DOWNLOADS"
+                    if (root.isFinished) return "ALL DOWNLOADS COMPLETE"
+                    var active = root._activeJobCount()
+                    return active === 1 ? "DOWNLOADING" : active + " DOWNLOADS RUNNING"
+                }
+                font.family: "Segoe UI"
+                font.pixelSize: 18
+                font.weight: Font.DemiBold
+                color: root.isFinished ? success : textPrimary
             }
             Item { Layout.fillWidth: true }
             Text {
-                text: isFinished 
-                    ? "✓ " + successCount + " succeeded" + (failCount > 0 ? ", " + failCount + " failed" : "")
-                    : completedChapters + "/" + totalChapters + " chapters"
+                text: jobsModel.count === 0
+                    ? ""
+                    : jobsModel.count + (jobsModel.count === 1 ? " job" : " jobs")
                 font.pixelSize: 12
-                color: isFinished ? success : textSecondary
+                color: textSecondary
+                visible: jobsModel.count > 0
             }
         }
-        
-        // OVERALL PROGRESS BAR
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 8
-            color: bgElevated
-            radius: 4
-            
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: totalChapters > 0 ? parent.width * (completedChapters / totalChapters) : 0
-                radius: 4
-                gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: isFinished ? success : accentPrimary }
-                    GradientStop { position: 1.0; color: isFinished ? "#8BC34A" : accentHighlight }
-                }
-                Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-            }
+
+        // EMPTY STATE
+        Text {
+            visible: jobsModel.count === 0
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 40
+            text: "No active downloads — start one from the Browse tab."
+            color: textSecondary
+            font.pixelSize: 13
         }
-        
-        // ACTIVE CHAPTERS LIST
+
+        // JOB CARDS — vertical scrolling. The cards themselves
+        // size-to-content; the ScrollView handles overflow when you
+        // have many concurrent jobs.
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !isFinished && taskModel.count > 0
+            visible: jobsModel.count > 0
             clip: true
-            
-            ListView {
-                model: taskModel
-                spacing: 8
-                delegate: ColumnLayout {
-                    width: parent.width
-                    spacing: 2
-                    
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            text: model.name
-                            font.pixelSize: 12; font.weight: Font.Medium
-                            color: textPrimary; elide: Text.ElideRight; Layout.fillWidth: true
-                        }
-                        Text {
-                            text: model.details
-                            font.pixelSize: 10; color: textSecondary
-                        }
-                    }
-                    
-                    Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 4
-                        color: bgElevated; radius: 2
-                        Rectangle {
-                            height: parent.height; radius: 2
-                            width: parent.width * (model.progress / 100)
-                            color: model.status === "Failed" ? "#E57373" : (model.status === "Complete" ? success : accentPrimary)
-                            Behavior on width { NumberAnimation { duration: 150 } }
-                        }
-                    }
-                }
+
+            ColumnLayout {
+                id: cardsContainer
+                width: parent ? parent.width : 0
+                spacing: 10
+                // Cards are appended programmatically by registerJob;
+                // this layout just gives them a place to live in
+                // creation order.
             }
-        }
-        
-        // COMPLETION MESSAGE
-        Text {
-            text: failCount === 0 ? "🎉 All chapters downloaded successfully!" : "⚠️ Some chapters failed to download."
-            font.pixelSize: 14
-            color: failCount === 0 ? success : "#E57373"
-            visible: isFinished
-            Layout.alignment: Qt.AlignHCenter
         }
     }
 }

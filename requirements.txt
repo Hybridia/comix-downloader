@@ -4,3 +4,9 @@ requests
 Pillow
 reportlab
 pyqt6
+beautifulsoup4
+curl_cffi
+# Optional — only needed for mangafire.to (computes its anti-bot vrf
+# token in JS; we capture it via headless Chromium). After install:
+#   python -m playwright install chromium
+playwright

@@ -24,17 +24,24 @@ class FetchWorker(QThread):
     def run(self):
         try:
             # Import here to avoid circular imports
-            from src.api.comix import ComixAPI
-            
+            from src.providers import get_provider_for_url, SUPPORTED_SITES_HUMAN
+
+            provider = get_provider_for_url(self.url)
+            if provider is None:
+                self.error.emit(
+                    f"Unsupported URL. Supported: {SUPPORTED_SITES_HUMAN}"
+                )
+                return
+
             # Extract manga code
-            manga_code = ComixAPI.extract_manga_code(self.url)
-            
+            manga_code = provider.extract_code(self.url)
+
             # Fetch manga info
-            manga = ComixAPI.get_manga_info(manga_code)
+            manga = provider.get_manga_info(manga_code)
             if not manga:
                 self.error.emit("Could not fetch manga information")
                 return
-            
+
             # Convert to dict for QML
             manga_dict = {
                 "manga_id": manga.manga_id,
@@ -51,26 +58,32 @@ class FetchWorker(QThread):
                 "description": manga.description or "",
                 "latest_chapter": manga.latest_chapter or "",
                 "original_language": manga.original_language or "",
-                "manga_code": manga_code
+                "manga_code": manga_code,
+                "source": manga.source,
+                "source_url": manga.source_url or "",
+                "artists": manga.artists or [],
+                "tags": manga.tags or [],
             }
-            
+
             self.finished.emit(manga_dict)
-            
+
             # Fetch chapters
-            chapters = ComixAPI.get_all_chapters(manga_code)
+            chapters = provider.get_chapters(manga_code)
             chapters_list = []
             for ch in chapters:
                 chapters_list.append({
                     "chapter_id": ch.chapter_id,
                     "number": str(ch.number),
                     "title": ch.title or "",
+                    "volume": ch.volume or "",
                     "group_name": ch.group_name or "Unknown",
                     "pages_count": ch.pages_count,
-                    "selected": False
+                    "image_urls": ch.image_urls or [],
+                    "selected": False,
                 })
-            
+
             self.chaptersLoaded.emit(chapters_list)
-            
+
         except Exception as e:
             self.error.emit(str(e))
 
@@ -91,11 +104,46 @@ class MangaBridge(QObject):
         self._chapters = []
         self._manga_code = ""
     
+    @pyqtSlot(result="QVariant")
+    def supportedSites(self) -> list:
+        """
+        Return a static description of every registered provider so the
+        URL input can show "what works." Each entry:
+        ``{name, label, domains, example_url, auth_required}``.
+        """
+        from src.providers import list_providers
+        out: list[dict] = []
+        for cls in list_providers():
+            out.append({
+                "name": getattr(cls, "name", ""),
+                "label": getattr(cls, "label", ""),
+                "domains": list(getattr(cls, "domains", ()) or ()),
+                "example_url": getattr(cls, "example_url", "") or "",
+                # Toomics is the only one currently behind a paywall;
+                # surface it so the GUI can mark the chip.
+                "auth_required": getattr(cls, "name", "") == "toomics",
+            })
+        return out
+
+    @pyqtSlot(str, result=str)
+    def classifyUrl(self, url: str) -> str:
+        """
+        Return the provider ``name`` that would handle this URL, or
+        empty string. Used by the URL input to live-validate as the
+        user types — no network round-trip.
+        """
+        from src.providers import get_provider_for_url
+        provider = get_provider_for_url(url)
+        return getattr(provider, "name", "") if provider else ""
+
     @pyqtSlot(str)
     def fetchManga(self, url: str):
         """Fetch manga info and chapters from URL."""
-        if not url or "comix.to" not in url:
-            self.errorOccurred.emit("Please enter a valid comix.to URL")
+        from src.providers import get_provider_for_url, SUPPORTED_SITES_HUMAN
+        if not url or get_provider_for_url(url) is None:
+            self.errorOccurred.emit(
+                f"Please enter a supported URL ({SUPPORTED_SITES_HUMAN})"
+            )
             return
         
         self.loadingChanged.emit(True)

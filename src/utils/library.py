@@ -1,0 +1,286 @@
+"""
+Library — persistent record of every manga we've successfully downloaded
+(or partially downloaded), keyed by source URL. Lives at
+``<project_root>/library.json``.
+
+The library is the source of truth for the GUI's Library tab and for
+the "Update" flow that fetches only chapters we haven't downloaded yet.
+
+JSON shape (versioned so we can migrate):
+
+    {
+      "version": 1,
+      "entries": [
+        {
+          "source": "hentairead",
+          "source_url": "https://hentairead.com/hentai/<slug>",
+          "manga_id": 165981,
+          "hash_id": "165981",
+          "manga_code": "<slug>",
+          "title": "...",
+          "alt_titles": [...],
+          "poster_url": "https://...",
+          "is_nsfw": true,
+          "artists": [...],
+          "tags": [...],
+          "output_format": "cbz",
+          "download_path": "downloads",
+          "folder": "<safe_title>",
+          "added_at": "<ISO-8601 UTC>",
+          "last_updated_at": "<ISO-8601 UTC>",
+          "last_checked_at": null,
+          "chapters": {
+            "1": {"title": "...", "downloaded_at": "<ISO-8601 UTC>"}
+          }
+        }
+      ]
+    }
+
+Design notes:
+
+- ``source_url`` is the primary key (normalized: lowercase host, no
+  trailing slash, no fragment). Two URLs that point to the same
+  gallery shouldn't produce two library entries.
+- ``chapters`` is a dict keyed by ``Chapter.number`` (string), so
+  computing "what's new on the site?" is just
+  ``set(remote_numbers) - set(entry["chapters"].keys())``.
+- All writes go through a process-wide lock and rewrite the whole
+  file atomically (same pattern as ``secrets.py``). The library is
+  small even for power users (≤ a few hundred entries), so full
+  rewrites are fine.
+"""
+
+import json
+import os
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse, urlunparse
+
+from .logger import get_logger
+
+logger = get_logger(__name__)
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_PATH = _PROJECT_ROOT / "library.json"
+
+_SCHEMA_VERSION = 1
+
+_lock = threading.RLock()
+_singleton: Optional["LibraryManager"] = None
+
+
+def _now_iso() -> str:
+    """Timezone-aware UTC ISO-8601 timestamp, no microseconds."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _normalize_url(url: str) -> str:
+    """
+    Make ``source_url`` stable across trivial variants so the same
+    gallery isn't recorded twice. Lowercases scheme + host, drops the
+    fragment, strips a trailing slash from the path.
+    """
+    if not url:
+        return ""
+    try:
+        p = urlparse(url.strip())
+    except ValueError:
+        return url.strip()
+    scheme = (p.scheme or "https").lower()
+    netloc = p.netloc.lower()
+    path = p.path or "/"
+    if len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    return urlunparse((scheme, netloc, path, p.params, p.query, ""))
+
+
+class LibraryManager:
+    """Persistent library of downloaded manga."""
+
+    def __init__(self, path: Optional[Path] = None):
+        self.path: Path = Path(path) if path else _DEFAULT_PATH
+        self._data: dict = {"version": _SCHEMA_VERSION, "entries": []}
+        self._load()
+
+    # --- IO ----------------------------------------------------------
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            with self.path.open("r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict) and isinstance(raw.get("entries"), list):
+                self._data = raw
+                # Forward compatibility: tolerate missing keys per entry.
+                for e in self._data["entries"]:
+                    e.setdefault("chapters", {})
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "library.json unreadable (%s); starting from empty library.", exc
+            )
+
+    def _save(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                json.dump(self._data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            logger.error("Failed to persist library.json: %s", exc)
+
+    # --- Internal lookup --------------------------------------------
+
+    def _index(self, source_url: str) -> int:
+        """Return the index of an entry by normalized URL, or -1."""
+        key = _normalize_url(source_url)
+        if not key:
+            return -1
+        for i, e in enumerate(self._data["entries"]):
+            if _normalize_url(e.get("source_url", "")) == key:
+                return i
+        return -1
+
+    # --- Public API --------------------------------------------------
+
+    def list_entries(self) -> list[dict]:
+        """Return a deep-ish copy of all entries (safe for QML)."""
+        with _lock:
+            # shallow-copy each entry; chapters is a small dict so ok.
+            return [dict(e) for e in self._data["entries"]]
+
+    def get_entry(self, source_url: str) -> Optional[dict]:
+        with _lock:
+            i = self._index(source_url)
+            return dict(self._data["entries"][i]) if i >= 0 else None
+
+    def upsert_manga(
+        self,
+        manga,
+        output_format: str,
+        download_path: str,
+        manga_code: Optional[str] = None,
+    ) -> dict:
+        """
+        Create or refresh the entry for ``manga``. Updates the snapshot
+        of metadata (title, poster, tags) without touching the
+        ``chapters`` dict. Called once at the start of every download
+        run so an entry exists even if every chapter ends up failing.
+        """
+        with _lock:
+            now = _now_iso()
+            entry = {
+                "source": getattr(manga, "source", "") or "",
+                "source_url": _normalize_url(getattr(manga, "source_url", "") or ""),
+                "manga_id": getattr(manga, "manga_id", None),
+                "hash_id": getattr(manga, "hash_id", None),
+                "manga_code": manga_code or getattr(manga, "slug", None),
+                "title": getattr(manga, "title", "") or "Unknown",
+                "alt_titles": list(getattr(manga, "alt_titles", []) or []),
+                "poster_url": getattr(manga, "poster_url", "") or "",
+                "is_nsfw": bool(getattr(manga, "is_nsfw", False)),
+                "artists": list(getattr(manga, "artists", []) or []),
+                "tags": list(getattr(manga, "tags", []) or []),
+                "output_format": output_format,
+                "download_path": download_path,
+                "folder": (
+                    manga.get_safe_title()
+                    if hasattr(manga, "get_safe_title")
+                    else getattr(manga, "title", "Unknown")
+                ),
+                "last_updated_at": now,
+            }
+
+            i = self._index(entry["source_url"]) if entry["source_url"] else -1
+            if i >= 0:
+                existing = self._data["entries"][i]
+                # Preserve historical fields we don't overwrite.
+                entry["added_at"] = existing.get("added_at", now)
+                entry["last_checked_at"] = existing.get("last_checked_at")
+                entry["chapters"] = existing.get("chapters", {})
+                self._data["entries"][i] = entry
+            else:
+                entry["added_at"] = now
+                entry["last_checked_at"] = None
+                entry["chapters"] = {}
+                self._data["entries"].append(entry)
+
+            self._save()
+            return dict(entry)
+
+    def record_chapter(
+        self,
+        manga,
+        chapter,
+        output_format: str,
+        download_path: str,
+        manga_code: Optional[str] = None,
+    ) -> None:
+        """Mark a single chapter as successfully downloaded."""
+        with _lock:
+            url = _normalize_url(getattr(manga, "source_url", "") or "")
+            if not url:
+                # No source URL means we can't dedupe; skip silently
+                # rather than spam library.json with anonymous entries.
+                return
+            i = self._index(url)
+            if i < 0:
+                self.upsert_manga(manga, output_format, download_path, manga_code)
+                i = self._index(url)
+                if i < 0:
+                    return
+
+            entry = self._data["entries"][i]
+            chapters = entry.setdefault("chapters", {})
+            number = str(getattr(chapter, "number", "")) or "?"
+            chapters[number] = {
+                "title": getattr(chapter, "title", "") or "",
+                "downloaded_at": _now_iso(),
+            }
+            entry["last_updated_at"] = _now_iso()
+            self._save()
+
+    def mark_checked(self, source_url: str) -> None:
+        """Stamp ``last_checked_at`` (called after an Update probe)."""
+        with _lock:
+            i = self._index(source_url)
+            if i < 0:
+                return
+            self._data["entries"][i]["last_checked_at"] = _now_iso()
+            self._save()
+
+    def remove_entry(self, source_url: str) -> bool:
+        with _lock:
+            i = self._index(source_url)
+            if i < 0:
+                return False
+            self._data["entries"].pop(i)
+            self._save()
+            return True
+
+    def downloaded_chapter_numbers(self, source_url: str) -> set[str]:
+        with _lock:
+            i = self._index(source_url)
+            if i < 0:
+                return set()
+            return set(self._data["entries"][i].get("chapters", {}).keys())
+
+
+def shared() -> LibraryManager:
+    """Process-wide singleton."""
+    global _singleton
+    with _lock:
+        if _singleton is None:
+            _singleton = LibraryManager()
+        return _singleton
+
+
+def reset_for_tests() -> None:
+    """Drop the singleton — only for unit tests."""
+    global _singleton
+    with _lock:
+        _singleton = None

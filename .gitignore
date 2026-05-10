@@ -137,12 +137,23 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+secrets.json
+library.json
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# OS-specific noise
+.DS_Store
+Thumbs.db
+
+# Local scratch / test downloads (real CBZ data, reading state, etc.)
+test/
+*.reader_state.json
+*.comix_reader_state.json
 
 # Spyder project settings
 .spyderproject

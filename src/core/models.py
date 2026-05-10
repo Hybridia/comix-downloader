@@ -38,7 +38,11 @@ class MangaInfo:
     year: Optional[int] = None
     genres: list = field(default_factory=list)
     description: str = ""
-    
+    source: str = "comix"
+    source_url: str = ""
+    artists: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+
     def get_safe_title(self) -> str:
         """Get filesystem-safe title."""
         safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in self.title)
@@ -55,6 +59,7 @@ class Chapter:
     votes: Optional[int] = None
     group_name: Optional[str] = None
     pages_count: int = 0
+    image_urls: list[str] = field(default_factory=list)
     
     def get_display_name(self) -> str:
         """Get chapter display name."""

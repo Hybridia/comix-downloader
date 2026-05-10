@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .display import Display
 from .menus import MainMenu, ChapterSelector, SettingsMenu
-from ..api.comix import ComixAPI
-from ..core.downloader import MangaDownloader, cancel_downloads
+from ..providers import get_provider_for_url, SUPPORTED_SITES_HUMAN
+from ..core.downloader import MangaDownloader, cancel_downloads, reset_cancel
 from ..core.models import OutputFormat
 from ..utils.config import ConfigManager
 from ..utils.logger import setup_logging
@@ -62,53 +62,62 @@ class ComixDownloaderApp:
     def _handle_download(self):
         """Handle manga download flow."""
         url = MainMenu.get_manga_url()
-        
+
         if not url:
             Display.error("No URL provided")
             return
-        
-        if "comix.to" not in url:
-            Display.error("Invalid URL. Please provide a comix.to manga URL")
+
+        provider = get_provider_for_url(url)
+        if provider is None:
+            Display.error(
+                f"Unsupported URL. Supported sites: {SUPPORTED_SITES_HUMAN}"
+            )
             return
-        
+
         try:
+            reset_cancel()
+
             # Extract manga code and fetch info
-            with console.status("[bold cyan]Fetching manga information..."):
-                manga_code = ComixAPI.extract_manga_code(url)
-                manga = ComixAPI.get_manga_info(manga_code)
-            
+            with console.status(f"[bold cyan]Fetching from {provider.label}..."):
+                manga_code = provider.extract_code(url)
+                manga = provider.get_manga_info(manga_code)
+
             if not manga:
                 Display.error("Could not fetch manga information")
                 return
-            
+
             Display.show_manga_info(manga)
-            
+
             # Fetch chapters
             with console.status("[bold cyan]Fetching chapters..."):
-                chapters = ComixAPI.get_all_chapters(manga_code)
-            
+                chapters = provider.get_chapters(manga_code)
+
             if not chapters:
                 Display.error("No chapters found")
                 return
-            
+
             display_limit = self.config_manager.get("chapters_display_limit", 20)
             Display.show_chapters_table(chapters, display_limit=display_limit)
-            
-            # Select chapters
-            selected = ChapterSelector.select_chapters(chapters)
-            
+
+            # Select chapters (single-chapter sources skip the selector)
+            if len(chapters) == 1:
+                selected = chapters
+                Display.info(f"Single gallery — downloading all {chapters[0].pages_count} pages")
+            else:
+                selected = ChapterSelector.select_chapters(chapters)
+
             if not selected:
                 Display.info("No chapters selected")
                 return
-            
+
             # Get config and show current settings
             config = self.config_manager.get_download_config()
             Display.show_settings(config)
-            
+
             console.print(f"\n[bold]Starting download of {len(selected)} chapter(s)...[/]\n")
-            
+
             # Download with progress
-            downloader = MangaDownloader(config)
+            downloader = MangaDownloader(config, provider)
             
             with Progress(
                 SpinnerColumn(),
@@ -169,27 +178,35 @@ def download(
     if url:
         # Direct download mode
         config_manager = ConfigManager()
-        
+
         if format:
             config_manager.set("output_format", format)
         if output:
             config_manager.set("download_path", output)
-        
+
         config = config_manager.get_download_config()
         setup_logging(enable=config.enable_logs)
-        
+
         try:
-            manga_code = ComixAPI.extract_manga_code(url)
-            manga = ComixAPI.get_manga_info(manga_code)
-            all_chapters = ComixAPI.get_all_chapters(manga_code)
-            
+            reset_cancel()
+            provider = get_provider_for_url(url)
+            if provider is None:
+                Display.error(
+                    f"Unsupported URL. Supported sites: {SUPPORTED_SITES_HUMAN}"
+                )
+                raise typer.Exit(1)
+
+            manga_code = provider.extract_code(url)
+            manga = provider.get_manga_info(manga_code)
+            all_chapters = provider.get_chapters(manga_code)
+
             if chapters and chapters.lower() != "all":
                 from .menus import ChapterSelector
                 selected = ChapterSelector._parse_selection(chapters, all_chapters)
             else:
                 selected = all_chapters
-            
-            downloader = MangaDownloader(config)
+
+            downloader = MangaDownloader(config, provider)
             
             with Progress(
                 SpinnerColumn(),

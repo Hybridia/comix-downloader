@@ -11,6 +11,13 @@ from .logger import get_logger
 logger = get_logger(__name__)
 
 
+# Project root = parent of `src/`. Anchoring config.json here keeps the
+# CLI and GUI on the same file regardless of the current working
+# directory the user launched from.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config.json"
+
+
 class ConfigManager:
     """Manages application configuration."""
     
@@ -24,11 +31,25 @@ class ConfigManager:
         "retry_count": 3,
         "retry_delay": 2.0,
         "chapters_display_limit": 20,  # 0 = show all
-        "flaresolverr_url": "http://localhost:8191/v1"
+        # HTTP / anti-block settings
+        "flaresolverr_url": "http://localhost:8191/v1",
+        "use_curl_cffi": True,                # browser fingerprinting via curl_cffi
+        "impersonate": "chrome120",           # any curl_cffi impersonate target
+        "requests_per_second_per_host": 4.0,  # adaptive starting rate
+        "min_requests_per_second": 0.5,       # floor when throttled
+        "max_requests_per_second": 8.0,       # ceiling when recovering
+        "verify_ssl": True,                   # set false only if local CA store is broken
     }
     
-    def __init__(self, config_path: str | Path = "config.json"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str | Path | None = None):
+        # Resolve to the project-root config by default so CLI and GUI
+        # always read/write the same file. A caller can still override
+        # by passing an explicit path.
+        if config_path is None:
+            self.config_path = _DEFAULT_CONFIG_PATH
+        else:
+            p = Path(config_path)
+            self.config_path = p if p.is_absolute() else _PROJECT_ROOT / p
         self._config: dict[str, Any] = {}
         self.load()
     

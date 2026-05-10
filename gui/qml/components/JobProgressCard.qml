@@ -1,0 +1,232 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// One card per active download. Owns its own ListModel of active
+// chapter rows. The parent ProgressPanel creates one per `jobStarted`
+// signal and routes per-job updates here via the slots below.
+Rectangle {
+    id: card
+
+    // ── public API ────────────────────────────────────────────────
+    property string jobId: ""
+    property string title: ""
+    property string posterUrl: ""
+    property int totalChapters: 0
+    property int completedChapters: 0
+    property int successCount: 0
+    property int failCount: 0
+    property bool isFinished: false
+    property string currentChapter: ""
+
+    // Theme — kept inline so the component is drop-in self-contained.
+    readonly property color bgCard: "#1C1C24"
+    readonly property color bgElevated: "#252530"
+    readonly property color accentPrimary: "#E8A54B"
+    readonly property color accentHighlight: "#FFD93D"
+    readonly property color textPrimary: "#F5F5F0"
+    readonly property color textSecondary: "#8B8B99"
+    readonly property color success: "#7CB342"
+
+    color: bgCard
+    radius: 10
+    border.color: isFinished ? success : "#2A2A35"
+    border.width: 1
+    implicitHeight: cardLayout.implicitHeight + 24
+
+    ListModel { id: taskModel }
+
+    // ── slots called by ProgressPanel router ──────────────────────
+    function updateProgress(completed, total) {
+        completedChapters = completed
+        totalChapters = total
+    }
+
+    function registerChapter(name) {
+        for (var i = 0; i < taskModel.count; i++) {
+            if (taskModel.get(i).name === name) return
+        }
+        taskModel.append({
+            "name": name,
+            "progress": 0,
+            "details": "Preparing…",
+            "status": "Preparing"
+        })
+    }
+
+    function updateChapterProgress(name, current, total) {
+        var found = false
+        for (var i = 0; i < taskModel.count; i++) {
+            if (taskModel.get(i).name === name) {
+                taskModel.setProperty(i, "progress", (current / total) * 100)
+                taskModel.setProperty(i, "details", current + " / " + total + " images")
+                taskModel.setProperty(i, "status", "Downloading")
+                found = true
+                break
+            }
+        }
+        if (!found) {
+            taskModel.append({
+                "name": name,
+                "progress": (current / total) * 100,
+                "details": current + " / " + total + " images",
+                "status": "Downloading"
+            })
+        }
+    }
+
+    function setChapterStatus(name, ok, message) {
+        currentChapter = name
+        if (ok) successCount++; else failCount++
+        for (var i = 0; i < taskModel.count; i++) {
+            if (taskModel.get(i).name === name) {
+                taskModel.setProperty(i, "status", ok ? "Complete" : "Failed")
+                taskModel.setProperty(i, "progress", 100)
+                break
+            }
+        }
+    }
+
+    function setFinished(successful, failed) {
+        isFinished = true
+        successCount = successful
+        failCount = failed
+    }
+
+    ColumnLayout {
+        id: cardLayout
+        anchors.fill: parent
+        anchors.margins: 12
+        spacing: 8
+
+        // HEADER: cover thumbnail + title + chapter counter
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+
+            // Cover thumbnail. Falls back to a coloured placeholder
+            // when the URL is missing or fails to load.
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 48
+                radius: 4
+                color: bgElevated
+                clip: true
+                Image {
+                    anchors.fill: parent
+                    source: card.posterUrl
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    visible: status === Image.Ready
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text {
+                    text: card.title || "Unknown"
+                    font.family: "Segoe UI"
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    color: textPrimary
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Text {
+                    text: card.isFinished
+                        ? "✓ " + card.successCount + " succeeded"
+                          + (card.failCount > 0 ? ", " + card.failCount + " failed" : "")
+                        : card.completedChapters + " / " + card.totalChapters + " chapters"
+                    font.pixelSize: 11
+                    color: card.isFinished ? success : textSecondary
+                }
+            }
+
+            Text {
+                text: card.isFinished ? "DONE" : "DOWNLOADING"
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+                color: card.isFinished ? success : accentPrimary
+            }
+        }
+
+        // PER-JOB OVERALL PROGRESS BAR
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 6
+            color: bgElevated
+            radius: 3
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: card.totalChapters > 0
+                    ? parent.width * (card.completedChapters / card.totalChapters)
+                    : 0
+                radius: 3
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: card.isFinished ? success : accentPrimary }
+                    GradientStop { position: 1.0; color: card.isFinished ? "#8BC34A" : accentHighlight }
+                }
+                Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+            }
+        }
+
+        // ACTIVE CHAPTERS — only visible while the job is in flight.
+        // Repeater (not a ListView) so the card grows with content
+        // and the *outer* panel does the scrolling.
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 6
+            visible: !card.isFinished && taskModel.count > 0
+
+            Repeater {
+                model: taskModel
+                delegate: ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: model.name
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                            color: textPrimary
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: model.details
+                            font.pixelSize: 10
+                            color: textSecondary
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 3
+                        color: bgElevated
+                        radius: 2
+                        Rectangle {
+                            height: parent.height
+                            radius: 2
+                            // Same "preparing" sliver semantics as the
+                            // single-panel implementation that this
+                            // component was factored out of.
+                            width: model.status === "Preparing"
+                                ? Math.max(8, parent.width * 0.04)
+                                : parent.width * (model.progress / 100)
+                            color: model.status === "Failed" ? "#E57373"
+                                : model.status === "Complete" ? success
+                                : model.status === "Preparing" ? textSecondary
+                                : accentPrimary
+                            opacity: model.status === "Preparing" ? 0.4 : 1.0
+                            Behavior on width { NumberAnimation { duration: 150 } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

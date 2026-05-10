@@ -35,6 +35,7 @@ ApplicationWindow {
             
             onBrowseClicked: viewStack.currentIndex = 0
             onDownloadsClicked: viewStack.currentIndex = 1
+            onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh() }
             onSettingsClicked: settingsDrawer.isOpen = true
         }
         
@@ -66,9 +67,13 @@ ApplicationWindow {
                 BrowseView {
                     id: browseView
                 }
-                
+
                 DownloadsView {
                     id: downloadsView
+                }
+
+                LibraryView {
+                    id: libraryView
                 }
             }
         }
@@ -91,23 +96,31 @@ ApplicationWindow {
     
     Connections {
         target: DownloadBridge
-        function onDownloadStarted() { 
-            // Auto switch to downloads tab
+        function onDownloadStarted() {
+            // Auto switch to downloads tab. Don't reset the panel —
+            // multiple concurrent jobs share it now, and resetting
+            // would clobber the others. The "Clear Finished" button
+            // in DownloadsView is the explicit cleanup gesture.
             sideBar.activeTab = 1
             viewStack.currentIndex = 1
-            downloadsView.getProgressPanel().reset() 
         }
-        function onOverallProgress(current, total) { 
-            downloadsView.getProgressPanel().updateProgress(current, total) 
+        function onJobStarted(jobId, title, posterUrl, totalChapters) {
+            downloadsView.getProgressPanel().registerJob(jobId, title, posterUrl, totalChapters)
         }
-        function onChapterProgress(name, current, total) { 
-            downloadsView.getProgressPanel().updateChapterProgress(name, current, total) 
+        function onOverallProgress(jobId, current, total) {
+            downloadsView.getProgressPanel().routeOverallProgress(jobId, current, total)
         }
-        function onChapterComplete(name, success, message) { 
-            downloadsView.getProgressPanel().setChapterStatus(name, success, message) 
+        function onChapterStarted(jobId, name) {
+            downloadsView.getProgressPanel().routeChapterStarted(jobId, name)
         }
-        function onDownloadFinished(successful, failed) { 
-            downloadsView.getProgressPanel().setFinished(successful, failed) 
+        function onChapterProgress(jobId, name, current, total) {
+            downloadsView.getProgressPanel().routeChapterProgress(jobId, name, current, total)
+        }
+        function onChapterComplete(jobId, name, success, message) {
+            downloadsView.getProgressPanel().routeChapterComplete(jobId, name, success, message)
+        }
+        function onDownloadFinished(jobId, successful, failed) {
+            downloadsView.getProgressPanel().routeJobFinished(jobId, successful, failed)
         }
     }
     

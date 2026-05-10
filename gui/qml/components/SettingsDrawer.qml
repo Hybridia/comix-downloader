@@ -4,8 +4,32 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
-    
+
     property bool isOpen: false
+
+    // Mirror toomics auth into local state so the textareas stay editable
+    // until the user hits Save / Login.
+    property string toomicsEmailDraft: SettingsBridge ? SettingsBridge.toomicsEmail : ""
+    property string toomicsPasswordDraft: SettingsBridge ? SettingsBridge.toomicsPassword : ""
+    property string toomicsCookieDraft: SettingsBridge ? SettingsBridge.toomicsCookie : ""
+    property string toomicsUaDraft: SettingsBridge ? SettingsBridge.toomicsUserAgent : ""
+    property string toomicsStatusText: ""
+    property string toomicsStatusLevel: "" // "ok" | "warn" | "err" | ""
+
+    Connections {
+        target: SettingsBridge
+        function onToomicsStatus(level, message) {
+            root.toomicsStatusLevel = level
+            root.toomicsStatusText = message
+        }
+        function onSettingsChanged() {
+            // Re-sync drafts when settings change externally.
+            root.toomicsEmailDraft = SettingsBridge.toomicsEmail
+            root.toomicsPasswordDraft = SettingsBridge.toomicsPassword
+            root.toomicsCookieDraft = SettingsBridge.toomicsCookie
+            root.toomicsUaDraft = SettingsBridge.toomicsUserAgent
+        }
+    }
     
     // Theme colors
     readonly property color bgDeep: "#0A0A0C"
@@ -69,10 +93,21 @@ Rectangle {
                 }
             }
             
-            // Settings Content (no ScrollView to avoid scrollbar issues)
-            ColumnLayout {
+            // Scrollable settings body so the toomics section (which
+            // adds two TextAreas and a few buttons) can grow past the
+            // visible panel height.
+            Flickable {
+                id: settingsScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                contentWidth: settingsCol.width
+                contentHeight: settingsCol.height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: settingsCol
+                width: settingsScroll.width
                 spacing: 20
                 
                 // Output Format
@@ -164,24 +199,306 @@ Rectangle {
                         onValueChanged: if (SettingsBridge) SettingsBridge.setValue("max_image_workers", value)
                     }
                 }
-                
-                Item { Layout.fillHeight: true }
-                
+
+                // ─── Divider ─────────────────────────────────────────
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    height: 1
+                    color: textTertiary
+                    opacity: 0.3
+                }
+
+                // ─── Toomics auth ────────────────────────────────────
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Text {
+                        text: "TOOMICS LOGIN"
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
+                        color: accentPrimary
+                        Layout.topMargin: 4
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: "global.toomics.com needs your paid-member session. " +
+                              "Easiest path: enter email + password and click <b>Login</b> — " +
+                              "we'll fetch the session cookie for you. " +
+                              "Stored locally in <code>secrets.json</code> (gitignored, mode 0600). " +
+                              "If toomics blocks the form (captcha, MFA), fall back to pasting " +
+                              "the <code>cookie</code> request header from devtools."
+                        textFormat: Text.RichText
+                        font.pixelSize: 11
+                        color: textSecondary
+                        lineHeight: 1.3
+                    }
+
+                    // ── Credentials (preferred) ──────────────────
+                    Text {
+                        text: "Email"
+                        font.pixelSize: 12
+                        color: textSecondary
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        radius: 8
+                        color: bgElevated
+                        border.color: textTertiary; border.width: 1
+                        TextInput {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10; anchors.rightMargin: 10
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: textPrimary
+                            font.pixelSize: 13
+                            clip: true
+                            selectByMouse: true
+                            inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
+                            text: root.toomicsEmailDraft
+                            onTextChanged: root.toomicsEmailDraft = text
+                        }
+                    }
+
+                    Text {
+                        text: "Password"
+                        font.pixelSize: 12
+                        color: textSecondary
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        radius: 8
+                        color: bgElevated
+                        border.color: textTertiary; border.width: 1
+                        TextInput {
+                            id: toomicsPwField
+                            anchors.fill: parent
+                            anchors.leftMargin: 10; anchors.rightMargin: 10
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: textPrimary
+                            font.pixelSize: 13
+                            echoMode: TextInput.Password
+                            clip: true
+                            selectByMouse: true
+                            text: root.toomicsPasswordDraft
+                            onTextChanged: root.toomicsPasswordDraft = text
+                        }
+                    }
+
+                    // Login button — runs the email/password flow, populates
+                    // cookie + UA automatically.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        radius: 8
+                        color: loginArea.containsMouse ? accentPrimary : bgElevated
+                        border.color: accentPrimary; border.width: 1
+                        Text {
+                            anchors.centerIn: parent
+                            text: "🔐 Login"
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                            color: loginArea.containsMouse ? bgDeep : accentPrimary
+                        }
+                        MouseArea {
+                            id: loginArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (SettingsBridge) {
+                                SettingsBridge.loginToomics(
+                                    root.toomicsEmailDraft,
+                                    root.toomicsPasswordDraft,
+                                    true
+                                )
+                            }
+                        }
+                    }
+
+                    // ── Manual cookie fallback ──────────────────
+                    Text {
+                        Layout.topMargin: 8
+                        text: "— or paste cookie manually —"
+                        font.pixelSize: 11
+                        color: textTertiary
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Text {
+                        text: "Session cookie"
+                        font.pixelSize: 12
+                        color: textSecondary
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 110
+                        radius: 8
+                        color: bgElevated
+                        border.color: textTertiary; border.width: 1
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            clip: true
+                            TextArea {
+                                id: toomicsCookieField
+                                wrapMode: TextArea.WrapAnywhere
+                                color: textPrimary
+                                font.pixelSize: 11
+                                font.family: "Menlo"
+                                background: null
+                                placeholderText: "Paste cookie: <name>=<value>; <name>=<value>; …"
+                                placeholderTextColor: textTertiary
+                                selectByMouse: true
+                                text: root.toomicsCookieDraft
+                                onTextChanged: root.toomicsCookieDraft = text
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "User-agent"
+                        font.pixelSize: 12
+                        color: textSecondary
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        radius: 8
+                        color: bgElevated
+                        border.color: textTertiary; border.width: 1
+                        TextInput {
+                            id: toomicsUaField
+                            anchors.fill: parent
+                            anchors.leftMargin: 10; anchors.rightMargin: 10
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: textPrimary
+                            font.pixelSize: 12
+                            font.family: "Menlo"
+                            clip: true
+                            selectByMouse: true
+                            text: root.toomicsUaDraft
+                            onTextChanged: root.toomicsUaDraft = text
+                        }
+                    }
+
+                    // Buttons row
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            Layout.preferredWidth: 90
+                            Layout.preferredHeight: 36
+                            radius: 8
+                            color: saveArea.containsMouse ? accentPrimary : bgElevated
+                            border.color: accentPrimary; border.width: 1
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Save"
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                color: saveArea.containsMouse ? bgDeep : accentPrimary
+                            }
+                            MouseArea {
+                                id: saveArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: if (SettingsBridge) {
+                                    SettingsBridge.saveToomicsAuth(
+                                        root.toomicsCookieDraft,
+                                        root.toomicsUaDraft
+                                    )
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: 90
+                            Layout.preferredHeight: 36
+                            radius: 8
+                            color: testArea.containsMouse ? bgElevated : "transparent"
+                            border.color: textSecondary; border.width: 1
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Test"
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                color: textPrimary
+                            }
+                            MouseArea {
+                                id: testArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: if (SettingsBridge) SettingsBridge.testToomicsAuth()
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Rectangle {
+                            Layout.preferredWidth: 70
+                            Layout.preferredHeight: 36
+                            radius: 8
+                            color: clearArea.containsMouse ? error : "transparent"
+                            border.color: error; border.width: 1
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Clear"
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                color: clearArea.containsMouse ? textPrimary : error
+                            }
+                            MouseArea {
+                                id: clearArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: if (SettingsBridge) {
+                                    root.toomicsCookieDraft = ""
+                                    root.toomicsUaDraft = ""
+                                    SettingsBridge.clearToomicsAuth()
+                                }
+                            }
+                        }
+                    }
+
+                    // Status line
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.toomicsStatusText !== ""
+                        text: root.toomicsStatusText
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 11
+                        color: root.toomicsStatusLevel === "ok" ? success :
+                               root.toomicsStatusLevel === "warn" ? accentPrimary :
+                               root.toomicsStatusLevel === "err" ? error : textSecondary
+                    }
+                }
+
+                // ─── End toomics auth ────────────────────────────────
+
+                Item { Layout.preferredHeight: 4 }
+
                 // Reset Button
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     width: 180; height: 44; radius: 8
                     color: resetArea.containsMouse ? error : "transparent"
                     border.color: error; border.width: 2
-                    
-                    Text { 
+
+                    Text {
                         anchors.centerIn: parent
                         text: "Reset to Defaults"
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
-                        color: resetArea.containsMouse ? textPrimary : error 
+                        color: resetArea.containsMouse ? textPrimary : error
                     }
-                    
+
                     MouseArea {
                         id: resetArea
                         anchors.fill: parent
@@ -190,7 +507,8 @@ Rectangle {
                         onClicked: SettingsBridge.resetToDefaults()
                     }
                 }
-            }
+            } // settingsCol
+            } // Flickable
         }
     }
     

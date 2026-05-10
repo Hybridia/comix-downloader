@@ -1,11 +1,18 @@
 {
   "output_format": "images",
-  "keep_images": true,
-  "enable_logs": true,
-  "max_chapter_workers": 5,
-  "max_image_workers": 6,
+  "keep_images": false,
+  "enable_logs": false,
+  "max_chapter_workers": 3,
+  "max_image_workers": 5,
   "download_path": "downloads",
   "retry_count": 3,
   "retry_delay": 2.0,
-  "chapters_display_limit": 0
+  "chapters_display_limit": 20,
+  "flaresolverr_url": "http://localhost:8191/v1",
+  "use_curl_cffi": true,
+  "impersonate": "chrome120",
+  "requests_per_second_per_host": 4.0,
+  "min_requests_per_second": 0.5,
+  "max_requests_per_second": 8.0,
+  "verify_ssl": true
 }
