@@ -12,6 +12,10 @@ from .hentairead import HentaireadProvider
 from .hentaifox import HentaifoxProvider
 from .toonily import ToonilyProvider
 from .manhwaread import ManhwareadProvider
+from .manhwabuddy import ManhwabuddyProvider
+from .manhwa18 import Manhwa18Provider
+from .mangadistrict import MangadistrictProvider
+from .webtoonscan import WebtoonscanProvider
 from .toomics import ToomicsProvider
 from .mangafire import MangafireProvider
 
@@ -25,6 +29,10 @@ _REGISTRY: list[Type[Provider]] = [
     HentaifoxProvider,
     ToonilyProvider,
     ManhwareadProvider,
+    ManhwabuddyProvider,
+    Manhwa18Provider,
+    MangadistrictProvider,
+    WebtoonscanProvider,
     ToomicsProvider,
     MangafireProvider,
 ]

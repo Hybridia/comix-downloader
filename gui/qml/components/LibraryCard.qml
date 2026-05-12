@@ -12,6 +12,7 @@ Rectangle {
     signal updateRequested()
     signal removeRequested()
     signal openFolderRequested()
+    signal convertToCbzRequested()
 
     readonly property color bgCard: "#1C1C24"
     readonly property color bgElevated: "#252530"
@@ -28,7 +29,16 @@ Rectangle {
     border.width: 1
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 132
+    // Make room for the optional "Convert to CBZ" button when the
+    // entry is image-format. Computed via the actions column below.
+    Layout.preferredHeight: showConvertButton ? 162 : 132
+
+    // Convert button visibility: shown only when the user originally
+    // downloaded this manga as images. After a successful repack the
+    // bridge stamps output_format=cbz on the entry, so this naturally
+    // hides on the next refresh.
+    readonly property bool showConvertButton:
+        entry && (entry.output_format || "").toLowerCase() === "images"
 
     function shortDate(iso) {
         if (!iso) return "—"
@@ -156,6 +166,34 @@ Rectangle {
                     color: parent.enabled ? "#1A1A1F" : textTertiary
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            // CONVERT TO CBZ — visible only for image-format downloads.
+            // Calls the LibraryBridge.convertToCbz slot, which packs
+            // every Chapter_N folder into a sibling .cbz. Idempotent;
+            // already-CBZ chapters are skipped without re-writing.
+            Button {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                visible: root.showConvertButton
+                enabled: !root.busy
+                text: root.busy ? "Working…" : "Convert to CBZ"
+                onClicked: root.convertToCbzRequested()
+
+                background: Rectangle {
+                    radius: 6
+                    color: parent.hovered ? Qt.darker(success, 1.2) : "transparent"
+                    border.width: 1
+                    border.color: parent.hovered ? success : "#3A3A45"
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.hovered ? "#FFFFFF" : success
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

@@ -27,6 +27,10 @@ class DownloadWorker(QThread):
     overallProgress = pyqtSignal(str, int, int)  # job_id, completed, total
     finished = pyqtSignal(str, int, int)  # job_id, successful, failed
     error = pyqtSignal(str, str)  # job_id, message
+    # Per-job pause/cancel state — see the threading-event design notes
+    # in __init__ for what these mean wrt in-flight chapters.
+    jobPaused = pyqtSignal(str, bool)  # job_id, paused
+    jobCancelled = pyqtSignal(str)  # job_id
 
     def __init__(self, job_id: str, manga_dict: dict, chapters: list, config, provider):
         super().__init__()
@@ -39,13 +43,78 @@ class DownloadWorker(QThread):
         self._completed = 0
         self._successful = 0
         self._failed = 0
+        # Per-job pause/cancel events. ``_pause_event`` set ⇒ paused;
+        # the chapter worker threads block in a pre-work check between
+        # chapters. ``_cancel_event`` set ⇒ no further chapters start
+        # and any thread waking from pause exits immediately. Both are
+        # job-scoped — the global ``src.core.downloader._cancel_event``
+        # stays for "cancel everything" callers (e.g. app shutdown).
+        #
+        # Semantic note: pause/cancel are "between chapters" only.
+        # In-flight chapters complete their image batch before the
+        # next chapter would have started. Mid-chapter abort would
+        # leave partial files we'd have to clean up; not worth the
+        # complexity for the UX gain.
+        self._pause_event = threading.Event()
+        self._cancel_event = threading.Event()
         # Per-run failure log; populated as chapters fail, written at end.
         # Lazy because we need a MangaInfo to know the output path; the
         # actual instance is built in run() once we have one.
         self._failure_log = None
-    
+
+    # ── pause / resume / cancel ──────────────────────────────────────
+
+    def pause(self) -> None:
+        if self._cancel_event.is_set():
+            return
+        was_set = self._pause_event.is_set()
+        self._pause_event.set()
+        if not was_set:
+            self.jobPaused.emit(self.job_id, True)
+
+    def resume(self) -> None:
+        if self._cancel_event.is_set():
+            return
+        was_set = self._pause_event.is_set()
+        self._pause_event.clear()
+        if was_set:
+            self.jobPaused.emit(self.job_id, False)
+
+    def cancel_job(self) -> None:
+        if self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        # If paused, unblock the waiting worker threads so they can
+        # observe the cancel flag and exit.
+        self._pause_event.clear()
+        self.jobCancelled.emit(self.job_id)
+
+    def _wait_if_paused(self) -> bool:
+        """
+        Block while paused, return True if the work should continue or
+        False if cancel was requested.
+        """
+        while self._pause_event.is_set():
+            if self._cancel_event.is_set():
+                return False
+            # Short timeout so cancel still feels responsive while paused.
+            self._pause_event.wait(timeout=0.5)
+        return not self._cancel_event.is_set()
+
     def _download_single_chapter(self, chapter_dict, manga, total):
         """Download a single chapter. Called from thread pool."""
+        # Pre-work pause/cancel check. Done BEFORE the chapterStarted
+        # emit so paused-queued chapters don't briefly flash in the
+        # active list. If cancel fires while we're queued, we count
+        # the chapter as "completed" (skipped) so overall progress
+        # still reaches 100% and the job can finish cleanly.
+        if not self._wait_if_paused():
+            with self._lock:
+                self._completed += 1
+                completed = self._completed
+            self.overallProgress.emit(self.job_id, completed, total)
+            return False, f"Chapter {chapter_dict.get('number', '?')}"
+
         try:
             from src.core.downloader import ChapterDownloader
             from src.core.models import Chapter
@@ -239,6 +308,8 @@ class DownloadBridge(QObject):
     downloadFinished = pyqtSignal(str, int, int)  # job_id, successful, failed
     errorOccurred = pyqtSignal(str)  # human-readable; not job-scoped (e.g. "no chapters selected")
     jobError = pyqtSignal(str, str)  # job_id, message — failures inside an active worker
+    jobPaused = pyqtSignal(str, bool)  # job_id, paused — UI flips card status badge
+    jobCancelled = pyqtSignal(str)  # job_id — UI marks card as Cancelled
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -366,6 +437,8 @@ class DownloadBridge(QObject):
         worker.overallProgress.connect(self.overallProgress.emit)
         worker.finished.connect(self.downloadFinished.emit)
         worker.error.connect(self.jobError.emit)
+        worker.jobPaused.connect(self.jobPaused.emit)
+        worker.jobCancelled.connect(self.jobCancelled.emit)
         # Self-evict from the workers dict on finish/error so we don't
         # leak references to completed QThreads.
         worker.finished.connect(self._on_job_finished)
@@ -374,6 +447,30 @@ class DownloadBridge(QObject):
             self._workers[job_id] = worker
         worker.start()
     
+    @pyqtSlot(str)
+    def pauseJob(self, job_id: str) -> None:
+        """Pause one job — stops scheduling new chapters; in-flight finish."""
+        with self._workers_lock:
+            worker = self._workers.get(job_id)
+        if worker is not None and worker.isRunning():
+            worker.pause()
+
+    @pyqtSlot(str)
+    def resumeJob(self, job_id: str) -> None:
+        """Resume a paused job."""
+        with self._workers_lock:
+            worker = self._workers.get(job_id)
+        if worker is not None and worker.isRunning():
+            worker.resume()
+
+    @pyqtSlot(str)
+    def cancelJob(self, job_id: str) -> None:
+        """Cancel one job — no new chapters start; in-flight finish normally."""
+        with self._workers_lock:
+            worker = self._workers.get(job_id)
+        if worker is not None and worker.isRunning():
+            worker.cancel_job()
+
     @pyqtSlot()
     def cancelDownload(self):
         """Cancel every in-progress download.

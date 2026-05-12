@@ -70,6 +70,87 @@ def _chapter_to_dict(ch) -> dict:
     }
 
 
+class RepackWorker(QThread):
+    """
+    Background worker that packs a manga's image folders into CBZs.
+    Idempotent — already-CBZ'd chapters are skipped. Source images
+    are NEVER deleted; the user can do that manually if desired.
+    """
+
+    # source_url, total_chapters
+    started = pyqtSignal(str, int)
+    # source_url, done, total
+    progress = pyqtSignal(str, int, int)
+    # source_url, created, skipped, failed
+    completed = pyqtSignal(str, int, int, int)
+    # source_url, error_message
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, source_url: str, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.source_url = source_url
+
+    def run(self) -> None:
+        try:
+            from src.utils.library import shared as _library
+            from src.utils.repack import (
+                manga_info_from_library_entry,
+                repack_manga,
+            )
+
+            entry = _library().get_entry(self.source_url)
+            if not entry:
+                self.failed.emit(
+                    self.source_url,
+                    "No library entry for this URL — was it removed?",
+                )
+                return
+
+            download_path = Path(entry.get("download_path") or "downloads")
+            folder = entry.get("folder") or ""
+            manga_dir = download_path / folder if folder else download_path
+            if not manga_dir.is_dir():
+                self.failed.emit(
+                    self.source_url,
+                    f"Folder not found: {manga_dir}",
+                )
+                return
+
+            manga = manga_info_from_library_entry(entry, manga_dir.name)
+
+            # Forward per-chapter progress as bridge signals. We emit
+            # `started` with the total once we get the "start" event so
+            # the UI knows how big the job is.
+            def _on_progress(_chapter_name: str, done: int, total: int, status: str) -> None:
+                if status == "start":
+                    self.started.emit(self.source_url, total)
+                    return
+                self.progress.emit(self.source_url, done, total)
+
+            result = repack_manga(
+                manga_dir,
+                manga,
+                library_entry=entry,
+                delete_images=False,
+                on_progress=_on_progress,
+            )
+
+            # If anything was created (or everything was already CBZ),
+            # update the entry's output_format so the Convert button
+            # hides on the next Library refresh.
+            if result.failed == 0:
+                try:
+                    _library().set_output_format(self.source_url, "cbz")
+                except Exception:
+                    pass
+
+            self.completed.emit(
+                self.source_url, result.created, result.skipped, result.failed,
+            )
+        except Exception as exc:
+            self.failed.emit(self.source_url, str(exc))
+
+
 class UpdateProbeWorker(QThread):
     """Fetch the latest chapter list and diff against the library."""
 
@@ -131,6 +212,10 @@ class LibraryBridge(QObject):
     updateStarted = pyqtSignal(str, str, int)            # url, title, new_chapter_count
     noUpdatesAvailable = pyqtSignal(str, str)            # url, title
     updateFailed = pyqtSignal(str, str)                  # url, error_message
+    repackStarted = pyqtSignal(str, int)                 # url, total_chapters
+    repackProgress = pyqtSignal(str, int, int)           # url, done, total
+    repackFinished = pyqtSignal(str, int, int, int)      # url, created, skipped, failed
+    repackFailed = pyqtSignal(str, str)                  # url, error_message
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -140,6 +225,7 @@ class LibraryBridge(QObject):
         # Hold worker references so QThread isn't garbage-collected
         # mid-run.
         self._workers: list[UpdateProbeWorker] = []
+        self._repack_workers: list[RepackWorker] = []
 
     def attach_download_bridge(self, download_bridge) -> None:
         """Wire the DownloadBridge so update probes can launch downloads."""
@@ -189,6 +275,39 @@ class LibraryBridge(QObject):
                 subprocess.Popen(["xdg-open", str(target)])
         except Exception:
             pass
+
+    @pyqtSlot(str)
+    def convertToCbz(self, source_url: str) -> None:
+        """
+        Pack every chapter folder of this manga into a sibling .cbz.
+        Runs on a worker thread so the UI stays responsive. Source
+        image folders are kept intact; user can clean them up manually
+        if they want to reclaim space.
+        """
+        worker = RepackWorker(source_url, self)
+        worker.started.connect(self.repackStarted.emit)
+        worker.progress.connect(self.repackProgress.emit)
+        worker.completed.connect(self._on_repack_completed)
+        worker.failed.connect(self.repackFailed.emit)
+        worker.finished.connect(lambda w=worker: self._reap_repack(w))
+        self._repack_workers.append(worker)
+        worker.start()
+
+    def _on_repack_completed(
+        self, source_url: str, created: int, skipped: int, failed: int
+    ) -> None:
+        self.repackFinished.emit(source_url, created, skipped, failed)
+        # If we updated the output_format, refresh the list so the UI
+        # hides the Convert button + shows the new format badge.
+        if failed == 0:
+            self.entriesChanged.emit()
+
+    def _reap_repack(self, worker: "RepackWorker") -> None:
+        try:
+            self._repack_workers.remove(worker)
+        except ValueError:
+            pass
+        worker.deleteLater()
 
     @pyqtSlot(str)
     def updateEntry(self, source_url: str) -> None:

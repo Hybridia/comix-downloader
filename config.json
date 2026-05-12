@@ -1,9 +1,9 @@
 {
-  "output_format": "images",
+  "output_format": "cbz",
   "keep_images": false,
   "enable_logs": false,
   "max_chapter_workers": 3,
-  "max_image_workers": 5,
+  "max_image_workers": 6,
   "download_path": "downloads",
   "retry_count": 3,
   "retry_delay": 2.0,

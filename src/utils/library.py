@@ -253,6 +253,21 @@ class LibraryManager:
             self._data["entries"][i]["last_checked_at"] = _now_iso()
             self._save()
 
+    def set_output_format(self, source_url: str, fmt: str) -> bool:
+        """
+        Update an entry's ``output_format`` (e.g. after the Library
+        "Convert to CBZ" button runs). Returns True if the entry
+        existed and was updated.
+        """
+        with _lock:
+            i = self._index(source_url)
+            if i < 0:
+                return False
+            self._data["entries"][i]["output_format"] = fmt
+            self._data["entries"][i]["last_updated_at"] = _now_iso()
+            self._save()
+            return True
+
     def remove_entry(self, source_url: str) -> bool:
         with _lock:
             i = self._index(source_url)

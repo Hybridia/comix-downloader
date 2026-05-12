@@ -118,6 +118,14 @@ Rectangle {
             _refreshAggregateState()
         }
     }
+    function routeJobPaused(jobId, paused) {
+        var c = cardsByJobId[jobId]
+        if (c) c.setPaused(paused)
+    }
+    function routeJobCancelled(jobId) {
+        var c = cardsByJobId[jobId]
+        if (c) c.setCancelled()
+    }
 
     // Card factory — one Component instantiated per job.
     Component {

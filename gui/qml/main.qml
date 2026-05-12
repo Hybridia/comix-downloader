@@ -122,6 +122,12 @@ ApplicationWindow {
         function onDownloadFinished(jobId, successful, failed) {
             downloadsView.getProgressPanel().routeJobFinished(jobId, successful, failed)
         }
+        function onJobPaused(jobId, paused) {
+            downloadsView.getProgressPanel().routeJobPaused(jobId, paused)
+        }
+        function onJobCancelled(jobId) {
+            downloadsView.getProgressPanel().routeJobCancelled(jobId)
+        }
     }
     
     // STARTUP ANIMATION

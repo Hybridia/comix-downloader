@@ -33,6 +33,10 @@
 | `hentaifox.com` | none | hidden form fields + `g_th` JSON |
 | `toonily.com` | Cloudflare only | multi-chapter manhwa via curl_cffi |
 | `manhwaread.com` | none | mangomic theme + base64 chapterData |
+| `manhwabuddy.com` | Cloudflare only | plain HTML, `data-src` reader images (simplest provider) |
+| `manhwa18.com` | Cloudflare only | plain HTML, rotating CDN host per chapter age |
+| `mangadistrict.com` | Cloudflare only | Madara theme, plain HTTP (no FlareSolverr needed) |
+| `webtoonscan.com` | Cloudflare (hard) | **requires FlareSolverr running** — aggressive bot management |
 | `global.toomics.com` | **paid login** | email+password (or cookie paste) → `secrets.json` |
 | `mangafire.to` | anti-bot only | Playwright captures CF cookies + VRF token |
 

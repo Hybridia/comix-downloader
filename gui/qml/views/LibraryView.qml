@@ -149,6 +149,12 @@ Item {
                         onOpenFolderRequested: {
                             LibraryBridge.openFolder(model.source_url)
                         }
+                        onConvertToCbzRequested: {
+                            libraryView.busyUrl = model.source_url
+                            libraryView.setStatus(model.source_url,
+                                                  "Packing chapters into CBZ…")
+                            LibraryBridge.convertToCbz(model.source_url)
+                        }
                     }
                 }
             }
@@ -174,6 +180,26 @@ Item {
         function onUpdateFailed(url, error) {
             libraryView.busyUrl = ""
             libraryView.setStatus(url, "Update failed: " + error)
+        }
+        function onRepackStarted(url, total) {
+            libraryView.setStatus(url,
+                "Packing " + total + " chapter" + (total === 1 ? "" : "s") + "…")
+        }
+        function onRepackProgress(url, done, total) {
+            libraryView.setStatus(url,
+                "Packing chapters… " + done + " / " + total)
+        }
+        function onRepackFinished(url, created, skipped, failed) {
+            libraryView.busyUrl = ""
+            var parts = []
+            if (created > 0) parts.push(created + " CBZ" + (created === 1 ? "" : "s") + " created")
+            if (skipped > 0) parts.push(skipped + " already packed")
+            if (failed > 0)  parts.push(failed + " failed")
+            libraryView.setStatus(url, parts.length ? parts.join(", ") : "Nothing to convert")
+        }
+        function onRepackFailed(url, error) {
+            libraryView.busyUrl = ""
+            libraryView.setStatus(url, "Convert failed: " + error)
         }
     }
 

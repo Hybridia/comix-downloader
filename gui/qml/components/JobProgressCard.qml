@@ -17,6 +17,8 @@ Rectangle {
     property int successCount: 0
     property int failCount: 0
     property bool isFinished: false
+    property bool isPaused: false
+    property bool isCancelled: false
     property string currentChapter: ""
 
     // Theme — kept inline so the component is drop-in self-contained.
@@ -89,8 +91,20 @@ Rectangle {
 
     function setFinished(successful, failed) {
         isFinished = true
+        // A finished job is no longer "paused" or "cancellable" — clear
+        // those so the UI shows the final state cleanly.
+        isPaused = false
         successCount = successful
         failCount = failed
+    }
+
+    function setPaused(paused) {
+        if (!isFinished && !isCancelled) isPaused = paused
+    }
+
+    function setCancelled() {
+        isCancelled = true
+        isPaused = false
     }
 
     ColumnLayout {
@@ -143,11 +157,72 @@ Rectangle {
                 }
             }
 
+            // Status pill — DOWNLOADING / PAUSED / CANCELLED / DONE.
             Text {
-                text: card.isFinished ? "DONE" : "DOWNLOADING"
+                text: card.isFinished ? "DONE"
+                    : card.isCancelled ? "CANCELLED"
+                    : card.isPaused ? "PAUSED"
+                    : "DOWNLOADING"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
-                color: card.isFinished ? success : accentPrimary
+                color: card.isFinished ? success
+                    : card.isCancelled ? "#E57373"
+                    : card.isPaused ? textSecondary
+                    : accentPrimary
+            }
+
+            // Per-job pause/resume + cancel icon buttons. Hidden once
+            // the job has finished (DONE / CANCELLED) — there's
+            // nothing to control then.
+            Row {
+                spacing: 4
+                visible: !card.isFinished && !card.isCancelled
+
+                // Pause / Resume toggle. Single button that flips icon
+                // and signal depending on isPaused.
+                Rectangle {
+                    width: 24; height: 24; radius: 12
+                    color: pauseHover.containsMouse ? bgElevated : "transparent"
+                    Text {
+                        anchors.centerIn: parent
+                        text: card.isPaused ? "▶" : "❚❚"
+                        font.pixelSize: card.isPaused ? 12 : 9
+                        color: textSecondary
+                    }
+                    MouseArea {
+                        id: pauseHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (card.isPaused)
+                                DownloadBridge.resumeJob(card.jobId)
+                            else
+                                DownloadBridge.pauseJob(card.jobId)
+                        }
+                    }
+                }
+
+                // Cancel. Stops scheduling further chapters; in-flight
+                // ones finish normally so we don't leave half-written
+                // CBZs on disk.
+                Rectangle {
+                    width: 24; height: 24; radius: 12
+                    color: cancelHover.containsMouse ? "#3A1F1F" : "transparent"
+                    Text {
+                        anchors.centerIn: parent
+                        text: "✕"
+                        font.pixelSize: 12
+                        color: cancelHover.containsMouse ? "#E57373" : textSecondary
+                    }
+                    MouseArea {
+                        id: cancelHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: DownloadBridge.cancelJob(card.jobId)
+                    }
+                }
             }
         }
 

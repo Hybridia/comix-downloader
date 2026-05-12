@@ -32,6 +32,10 @@ hentairead.com, hentaifox.com, toonily.com, manhwaread.com, toomics
 | `hentaifox.com`         | none                | hidden form fields + `g_th` JSON  | Single-chapter; reader gives ext   |
 | `toonily.com`           | Cloudflare only     | curl_cffi handles CF; per-ch HTML | **Multi-chapter**; img CDN needs ref |
 | `manhwaread.com`        | none                | mangomic theme; b64 chapterData   | **Multi-chapter**; same theme as hentairead |
+| `manhwabuddy.com`       | Cloudflare only     | plain HTML; `data-src` reader imgs | **Multi-chapter**; simplest provider in the matrix |
+| `manhwa18.com`          | Cloudflare only     | plain HTML; `data-src` lazy imgs; rotating CDN | Multi-chapter NSFW manhwa; chapters use multiple CDN hosts |
+| `mangadistrict.com`     | Cloudflare only     | Madara theme; eager `src` reader imgs | Multi-chapter NSFW manhwa; same theme as webtoonscan but no FlareSolverr needed |
+| `webtoonscan.com`       | Cloudflare (hard)   | **FlareSolverr required** — defeats curl_cffi AND Playwright | Multi-chapter Madara theme; aggressive bot management |
 | `global.toomics.com`    | **paid login**      | `secrets.json` cookie/credential  | One active session per account     |
 | `mangafire.to`          | anti-bot only       | **Playwright** (CF + VRF capture) | Heaviest provider; needs Chromium  |
 
@@ -70,6 +74,10 @@ comix/
     │   ├── hentaifox.py          HentaifoxProvider (form-field load_id + g_th JSON for extensions)
     │   ├── toonily.py            ToonilyProvider (multi-chapter manhwa; CF via curl_cffi)
     │   ├── manhwaread.py         ManhwareadProvider (multi-chapter; mangomic theme + b64 chapterData)
+    │   ├── manhwabuddy.py        ManhwabuddyProvider (multi-chapter; plain HTML, no JS, simplest provider)
+    │   ├── manhwa18.py           Manhwa18Provider (multi-chapter; plain HTML; rotating CDN per chapter)
+    │   ├── mangadistrict.py      MangadistrictProvider (multi-chapter; Madara; plain HTTP, no FlareSolverr)
+    │   ├── webtoonscan.py        WebtoonscanProvider (multi-chapter; Madara; FlareSolverr required)
     │   ├── toomics.py            ToomicsProvider (cookie/credential auth)
     │   └── mangafire.py          MangafireProvider (Playwright VRF + CF cookies)
     ├── core/
@@ -443,6 +451,158 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-05-11 — mangadistrict.com provider (Madara, plain HTTP)
+- New `MangadistrictProvider` for `mangadistrict.com`. Standard
+  Madara theme, but unlike webtoonscan it does NOT require
+  FlareSolverr — Cloudflare lets `get_session()` (curl_cffi
+  chrome120) through cleanly.
+- URL pattern: `/series/<slug>/` for series, `/series/<slug>/chapter-N/`
+  for reader.
+- **Title regex gotcha:** the Madara theme on this site puts
+  ``<span class="manga-title-badges">`` (Adult / Hot / etc. badges)
+  between the opening ``<div class="post-title">`` and the ``<h1>``.
+  Webtoonscan's tight ``<div class="post-title"...">\s*<h1>`` pattern
+  doesn't match; allow ``.*?`` between them.
+- **Reader uses eager ``src``** (not lazy ``data-src``) — both
+  attributes are accepted by the regex for forward compatibility.
+- **Site-chrome decoy:** Madara mounts an ``id="image-99999"``
+  pointing at ``/assets/publication/media/…`` as a default banner.
+  Filter it out by URL prefix (``/assets/publication/media/`` and
+  ``/wp-content/`` covers all the non-page images).
+- `og:title` includes a ``" - MANGA DISTRICT - Read Scan - Manhwa"``
+  boilerplate suffix; strip it so library shows a clean title.
+- `Chapter.volume` carries the absolute reader URL. NSFW flag taken
+  from the ``adult-content`` body class.
+- Verified live: 40 chapters parsed; first / middle / last all return
+  HTTP 200 (1-1.4 MB JPEG) from ``cdn.mangadistrict.com``.
+
+### 2026-05-11 — manhwa18.com provider (multi-chapter, rotating CDN)
+- New `Manhwa18Provider` for `manhwa18.com`. Plain HTML, no JS, no
+  AJAX. Cloudflare-fronted but the default `get_session()` passes
+  fine — no FlareSolverr needed.
+- URL pattern: `/manga/<slug>` for series, `/manga/<slug>/chap-N-<id>`
+  for reader. Early chapters use a bare `/<num>` suffix instead of
+  `chap-<num>-<id>`; the chapter-link regex accepts either.
+- **Chapter list:** every entry is
+  `<a href=".../chap-N-<id>" title="chap N">
+  <li><div class="chapter-name">chap N</div>
+  <div class="chapter-time">VIEWS - DATE</div></li></a>`. Same number
+  can appear multiple times (different scanlation groups → different
+  `<id>`). We surface every entry; the download bridge already dedups
+  by number when no scanlator filter is set.
+- **Title parse:** `<title>Manga X (group) - MyManga</title>` → `X (group)`.
+  Strip the literal `"Manga "` prefix and `" - MyManga"` suffix.
+- **Reader images:** `<img class="lazy" data-src="https://<cdn>/.../<id>.jpg">`.
+  The CDN host **rotates per chapter age**:
+    - Old chapters (~2021) → `cdn.manhwa18.com`
+    - Mid-2022 chapters    → `cdn.pornwa.us` (with an occasional `//`
+      typo in the path; we collapse repeated slashes in the path
+      portion when reconstructing)
+    - Recent (~2023+)      → `cdn.pornwa.club`
+  So the host filter has to be loose — we accept any URL with the
+  `lazy`-class + `data-src` markers. There are no decoy lazy-loaded
+  chrome elements that would otherwise leak in.
+- **Dead old URLs:** very old chapters on `cdn.manhwa18.com` 404 (the
+  site purged the originals when migrating to pornwa CDNs). Not our
+  bug — we faithfully extract whatever URL the site advertises; if
+  the CDN doesn't have it, that's content-side rot.
+- `Chapter.volume` carries the absolute reader URL (same convention
+  as toonily / manhwabuddy / manhwaread / comix).
+- `image_referer = "https://www.manhwa18.com/"` — the CDNs accept
+  requests without referer in practice, but set defensively.
+- `is_nsfw=True` baked in (site is explicitly 18+).
+
+### 2026-05-11 — webtoonscan.com provider (FlareSolverr-required Madara site)
+- New `WebtoonscanProvider` for `webtoonscan.com`. Standard Madara
+  theme, but the site is fronted by **aggressive Cloudflare** that
+  defeats every bypass approach we've used elsewhere:
+    - `curl_cffi` chrome120/131/chrome_android/safari17/safari18/edge101
+      all return HTTP 403 ("Just a moment…" JS challenge).
+    - Playwright Chromium — headless AND visible, with
+      `--disable-blink-features=AutomationControlled`,
+      `navigator.webdriver` spoofing, locale/timezone/viewport set —
+      sits on the challenge indefinitely without minting `cf_clearance`.
+      CF fingerprints Playwright more aggressively than mangafire's
+      deployment does.
+    - WP-JSON works for stock routes but doesn't expose the manga /
+      chapter custom post types, so there's no API-only path.
+- **Solution: FlareSolverr.** Provider uses
+  `get_session().get(url, force_flare=True)` for every HTML fetch.
+  Our existing `SessionManager._solve_cloudflare()` does the round-trip:
+  POST `/v1` with `cmd=request.get`, take the returned cookies +
+  user-agent, install on the underlying session, replay the request.
+- **User has to run FlareSolverr** the same way they already do for
+  mangafire — any deployment works (binary release / Docker / npm),
+  they all expose the same REST API on `http://localhost:8191/v1`.
+  Default URL already in `config.json → flaresolverr_url`. If
+  FlareSolverr is unreachable the provider's `_fetch_html` detects the
+  CF challenge in the response body and raises with a clear "start
+  FlareSolverr" hint.
+- **Madara theme parsing** — standard WordPress wp-manga markup:
+    - Title: `<div class="post-title"><h1>` (falls back to `og:title`)
+    - Cover: `og:image`
+    - Description: `og:description` → `meta[name=description]`
+    - Chapters: `<li class="wp-manga-chapter"><a href=".../chapter-N/">`
+    - Reader: `<img class="wp-manga-chapter-img"` with `data-src`
+      (lazy-loader; falls back to `src`). Scoped to the
+      `<div class="reading-content">` container so sidebar thumbnails /
+      recommendation cards don't pollute the image list.
+- **Image CDN** — unknown until first verified fetch; provider sets
+  `image_referer = "https://webtoonscan.com/"` defensively. If the
+  CDN turns out to NOT be CF-protected, image fetches use the normal
+  rate-limited session (no FlareSolverr round-trip per image — would
+  be intolerably slow).
+- **Diagnostic** — `scripts/webtoonscan_test.py` walks every stage
+  (FlareSolverr reachability → slug parse → manga info → chapter list
+  → reader → image HEAD). First thing to run when the site breaks.
+- **What we tried first that didn't work** (so we don't waste time
+  retrying next site):
+    - `src/utils/webtoonscan_capture.py` — Playwright-based CF cookie
+      minter, mirror of `mangafire_vrf.get_cf_state`. **Deleted** —
+      never minted `cf_clearance` even with stealth tweaks. The
+      mangafire-style approach only works on CF deployments that DON'T
+      fingerprint Playwright; webtoonscan does. If we ever need to
+      bypass without FlareSolverr, the right tools are
+      `nodriver`/`undetected-chromedriver` (CF-Turnstile-specific
+      stealth libs), not vanilla Playwright.
+
+### 2026-05-11 — manhwabuddy.com provider (multi-chapter, plain HTML)
+- New `ManhwabuddyProvider` for `manhwabuddy.com`. Cleanest provider
+  in the matrix to date: no JS execution, no AJAX, no obfuscation —
+  the chapter list AND every image URL are embedded directly in the
+  page HTML on first paint.
+- URL pattern: `/manhwa/<slug>/` for series, `/manhwa/<slug>/chapter-N/`
+  for the reader. The slug is the canonical code.
+- **Series-page parse:**
+    - **Title** — strip `Read X Manhwa ...` boilerplate from `<title>`.
+    - **Cover** — `<meta property="og:image">`.
+    - **Alt titles + description** — both packed into
+      `<meta name="description">`. The site puts slash-separated alt
+      names at the start (`"물이 넘쳐요/Super Wet/Dripping Wet. Oh, crazy..!!..."`);
+      we split on the first `". "` after a run of `/`-delimited tokens.
+    - **NSFW flag** — `<body class="mybody adult-content">` triggers
+      `is_nsfw=True`.
+    - **Chapter list** — `<li class="myfut"><a href="/manhwa/<slug>/
+      chapter-N/" title="..."><span class="chapter-name">Chapter N</span>`,
+      newest-first.  Page lists 105 chapters for the test series in a
+      single fetch.
+- **Reader-page parse:** every page is a `<img class="loading"
+  data-src="https://imgNN.manhwabuddy.com/chapters/<manga_id>/<chap>/<page>-XYZ.jpg"
+  src="...">`. We read `data-src` (lazy-load attribute; safer than
+  `src` which can be blank on first paint), filter to anything with
+  `/chapters/` in the path to skip site-chrome / "popular cards" /
+  app banners.
+- **Per-chapter URL suffix is randomised** (`-ee1` for chapter 1,
+  `-ccb` for chapter 50, etc.) — looks like cache-busting. We don't
+  reconstruct URLs, just scrape them, so the suffix is irrelevant.
+- **Cloudflare-protected** but the default `get_session()` (curl_cffi
+  chrome120 impersonation) passes through fine, same as toonily.
+- `Chapter.volume` carries the absolute reader URL (same convention as
+  toonily / manhwaread / comix) so the GUI bridge's lossy chapter-dict
+  serialisation can re-fetch images after a fresh provider instance.
+- `image_referer = "https://manhwabuddy.com/"` — the CDN
+  (`imgNN.manhwabuddy.com`) checks referer on image requests.
 
 ### 2026-05-10 — Multi-job download UI
 - **Each download is a "job".** ``DownloadBridge`` mints a unique
