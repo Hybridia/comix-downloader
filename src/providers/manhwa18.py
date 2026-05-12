@@ -57,17 +57,24 @@ _OG_IMAGE_RE = re.compile(
 _META_DESC_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]+)"', re.IGNORECASE
 )
-# `<a href="...chap-N-<id>" title="chap N"><li><div class="chapter-name">chap N</div>`
-# (early chapters use bare /<num> instead of /chap-<num>-<id> — accept
-# either by matching the URL tail as anything looking chapter-ish).
+# `<a href=".../<slug>/<trailing-segment>"><li><div class="chapter-name">…</div>`.
+# The trailing segment is wildly inconsistent across manga on this
+# site: ``chap-145-13`` (old fan-scan format), ``chapter-305-net-90707``
+# (newer "net" releases), bare ``147``, even ``chapter-12-13``. Accept
+# any non-slash chars and rely on the chapter-name div for the
+# canonical number.  The ``title="…"`` attribute is omitted on the
+# occasional row (~1/300 chapters); make it optional.
 _CHAPTER_LINK_RE = re.compile(
-    r'<a\s+href="([^"]+/manga/[^"]+/(?:chap-[^"/]+|\d+))"\s+title="([^"]+)"\s*>\s*'
+    r'<a\s+href="([^"]+/manga/[^"]+/[^"/]+)"\s*(?:title="([^"]*)")?[^>]*>\s*'
     r'<li[^>]*>\s*<div[^>]*class="[^"]*chapter-name[^"]*"[^>]*>\s*([^<]+)\s*</div>',
     re.IGNORECASE | re.DOTALL,
 )
-# `chap 145`, `chap 5.5`, `chap-12`, `chap 147 end` — first numeric run.
+# Match `chap N`, `Chapter N`, `chap-12`, `chap 5.5`, `Chapter 147 end`.
+# ``(?:ter)?`` covers the "Chapter" vs "chap" labels — without it the
+# regex matches the prefix but bails because "ter " sits between "chap"
+# and the digits.
 _CHAPTER_NUM_RE = re.compile(
-    r"chap[\s-]*(\d+(?:\.\d+)?)", re.IGNORECASE
+    r"chap(?:ter)?[\s.\-]*(\d+(?:\.\d+)?)", re.IGNORECASE
 )
 # Reader page images. Source order is reading order.
 _READER_IMG_RE = re.compile(

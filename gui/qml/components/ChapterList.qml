@@ -8,6 +8,22 @@ Rectangle {
     ListModel { id: chapterModel }
     property var allChapters: []  // Store original list for filtering
     property string currentFilter: "Any"
+
+    // Explicit selection counter. QML's binding system doesn't fire
+    // change signals on in-place mutations of a `property var` array
+    // (allChapters[i].selected = true …), so the previous binding to
+    // `getSelectedChapters().length` never re-evaluated. We update
+    // this manually from every toggle path: per-row click, Select
+    // All, None, and the initial filter rebuild.
+    property int selectedCount: 0
+
+    function recountSelected() {
+        var n = 0
+        for (var i = 0; i < allChapters.length; i++) {
+            if (allChapters[i].selected) n++
+        }
+        selectedCount = n
+    }
     
     // Theme colors
     readonly property color bgCard: "#1C1C24"
@@ -23,18 +39,20 @@ Rectangle {
     function setChapters(chapterList) {
         allChapters = chapterList
         applyFilter(currentFilter)
+        recountSelected()
     }
-    
+
     function applyFilter(filter) {
         currentFilter = filter
         chapterModel.clear()
-        
+
         for (var i = 0; i < allChapters.length; i++) {
             var ch = allChapters[i]
             if (filter === "Any" || !filter || ch.group_name === filter) {
                 chapterModel.append(ch)
             }
         }
+        recountSelected()
     }
     
     function getSelectedChapters() {
@@ -139,14 +157,28 @@ Rectangle {
                 onToggled: {
                     var isSelected = !model.selected
                     chapterModel.setProperty(index, "selected", isSelected)
-                    
-                    // Also update in allChapters reference
+
+                    // Match the corresponding entry in allChapters by a
+                    // compound key. chapter_id alone is unreliable —
+                    // providers that don't expose numeric chapter ids
+                    // (manhwa18, manhwabuddy, manhwaread, toonily,
+                    // mangadistrict, webtoonscan) set chapter_id=0
+                    // for every chapter, so matching on id-only flips
+                    // allChapters[0] every time. ``volume`` carries
+                    // the chapter URL on those providers and is
+                    // guaranteed unique; ``number`` + ``group_name``
+                    // disambiguate the multi-scanlator case on comix.
                     for (var j = 0; j < root.allChapters.length; j++) {
-                        if (root.allChapters[j].chapter_id === model.chapter_id) {
-                            root.allChapters[j].selected = isSelected
+                        var c = root.allChapters[j]
+                        if (c.chapter_id === model.chapter_id
+                            && c.number === model.number
+                            && (c.volume || "") === (model.volume || "")
+                            && (c.group_name || "") === (model.group_name || "")) {
+                            c.selected = isSelected
                             break
                         }
                     }
+                    root.selectedCount += isSelected ? 1 : -1
                 }
                 
                 // Reference the parent ChapterList
@@ -181,6 +213,7 @@ Rectangle {
                         for (var j = 0; j < allChapters.length; j++) {
                             allChapters[j].selected = true
                         }
+                        recountSelected()
                     }
                 }
             }
@@ -199,6 +232,7 @@ Rectangle {
                         for (var j = 0; j < allChapters.length; j++) {
                             allChapters[j].selected = false
                         }
+                        recountSelected()
                     }
                 }
             }
@@ -206,7 +240,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
             
             Text {
-                text: getSelectedChapters().length + " selected"
+                text: root.selectedCount + " selected"
                 font.pixelSize: 12
                 color: accentPrimary
             }
