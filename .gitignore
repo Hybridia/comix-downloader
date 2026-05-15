@@ -144,6 +144,7 @@ icloud_inventory.md
 icloud_match_cache.json
 icloud_unknowns.md
 library.json.bak.*
+cleanup_redundant_downloads.md
 .venv
 env/
 venv/

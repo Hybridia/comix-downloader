@@ -21,6 +21,8 @@ the bridge — back on the GUI thread — either kicks off the download or
 emits ``noUpdatesAvailable``.
 """
 
+import os
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -29,6 +31,85 @@ from typing import Optional
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+
+# ---- On-disk chapter discovery -----------------------------------------
+#
+# These helpers exist because the library.json "chapters" dict is
+# advisory only — what's actually ON DISK in the user's iCloud (or
+# wherever ``download_path/folder`` points) is the ground truth for
+# what they have. The Update flow uses this to compute the diff
+# against a site's chapter list, with format normalisation so that
+# ``Chapter_62.5.cbz`` (iCloud's dot convention) and ``chapter-62-5``
+# (Madara's hyphen convention) count as the same chapter.
+
+_FILENAME_CHAPTER_RE = re.compile(
+    r"(?:chapter|chap|episode|ep|ch)[_\s\.\-]*(\d+(?:[-.]\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def _norm_chapter_number(n: str) -> str:
+    """
+    Canonicalise a chapter-number string for cross-site comparison.
+
+    - Collapses hyphen + dot fractions (``62-5`` ⇄ ``62.5``) so the
+      same chapter compares equal regardless of which site's naming
+      convention it came from.
+    - Strips leading zeros from the integer part (``007`` → ``7``)
+      so padded filenames compare equal to unpadded site numbers.
+    """
+    s = str(n).replace("-", ".")
+    if "." in s:
+        head, tail = s.split(".", 1)
+        try:
+            head = str(int(head))
+        except ValueError:
+            pass
+        return f"{head}.{tail}" if tail else head
+    try:
+        return str(int(s))
+    except ValueError:
+        return s
+
+
+def _chapter_numbers_on_disk(folder: Path) -> set[str]:
+    """
+    Return the set of normalised chapter numbers found as ``.cbz``
+    files directly under ``folder``. Empty set if the folder doesn't
+    exist or contains nothing recognisable.
+
+    Doesn't recurse — chapters are flat in every format we support.
+    """
+    out: set[str] = set()
+    try:
+        if not folder.is_dir():
+            return out
+    except OSError:
+        return out
+    try:
+        for entry in folder.iterdir():
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() != ".cbz":
+                continue
+            m = _FILENAME_CHAPTER_RE.search(entry.stem)
+            if m:
+                out.add(_norm_chapter_number(m.group(1)))
+    except OSError:
+        pass
+    return out
+
+
+def _max_chapter(numbers: set[str]) -> float:
+    """Largest numerically-parseable chapter number, or -1 if none."""
+    best = -1.0
+    for n in numbers:
+        try:
+            best = max(best, float(n))
+        except ValueError:
+            continue
+    return best
 
 
 def _manga_info_to_dict(manga, manga_code: str) -> dict:
@@ -212,7 +293,33 @@ class StatusCheckWorker(QThread):
 
 
 class UpdateProbeWorker(QThread):
-    """Fetch the latest chapter list and diff against the library."""
+    """
+    Probe a library entry for new chapters.
+
+    Update model — *as of 2026-05-15 rework*:
+
+    - **Ground truth = files on disk**, not ``library.chapters``.
+      We scan ``download_path / folder`` for ``.cbz`` files and use
+      those filenames as the "what I have" set. Normalised so that
+      ``Chapter_62.5.cbz`` (iCloud's dot convention) and
+      ``chapter-62-5`` (Madara's hyphen convention) compare equal.
+    - **Empty / missing folder ⇒ no Update.** A library entry whose
+      target folder has zero CBZs (e.g. an old in-app download the
+      user abandoned) silently reports "no updates" — re-downloading
+      a hundred chapters into ``./downloads/`` was the bug we just
+      fixed.
+    - **Cross-site fallback**: if the primary site returns no
+      chapters whose normalised number is missing from disk, walk
+      ``entry["alternative_sources"]`` (already sorted by chapter
+      count desc by the enricher). The first alt whose ``max_chapter``
+      strictly exceeds the on-disk max wins — we use ITS chapter list
+      to compute the new-chapters diff, and the download bridge ends
+      up pointing at the alt's provider/url.
+
+    The worker still emits the same ``probeFinished`` signal shape;
+    the LibraryBridge dispatches new chapters via ``startDownload``
+    just like before.
+    """
 
     # source_url, manga_dict, new_chapters (list[dict]), total_remote,
     # total_already_downloaded, error_message_or_empty
@@ -227,48 +334,153 @@ class UpdateProbeWorker(QThread):
             from src.providers import get_provider_for_url, SUPPORTED_SITES_HUMAN
             from src.utils.library import shared as _library
 
-            provider = get_provider_for_url(self.source_url)
-            if provider is None:
+            # Look up the library entry for the on-disk path + alts.
+            entry = _library().get_entry(self.source_url) or {}
+
+            on_disk_folder = self._on_disk_folder(entry)
+            on_disk_chapters = (
+                _chapter_numbers_on_disk(on_disk_folder)
+                if on_disk_folder
+                else set()
+            )
+
+            # Guard: empty target folder ⇒ no update. Library entries
+            # for series the user has abandoned (no CBZs anywhere)
+            # don't get to re-download.
+            if not on_disk_chapters:
+                self.probeFinished.emit(
+                    self.source_url, {}, [], 0, 0, "",
+                )
+                return
+
+            on_disk_max = _max_chapter(on_disk_chapters)
+
+            # ── Primary probe ────────────────────────────────────────
+            primary_provider = get_provider_for_url(self.source_url)
+            if primary_provider is None:
                 self.probeFinished.emit(
                     self.source_url, {}, [], 0, 0,
                     f"Unsupported source URL. Known: {SUPPORTED_SITES_HUMAN}",
                 )
                 return
 
-            code = provider.extract_code(self.source_url)
-            manga = provider.get_manga_info(code)
-            if not manga:
+            try:
+                primary_code = primary_provider.extract_code(self.source_url)
+                primary_manga = primary_provider.get_manga_info(primary_code)
+            except Exception as exc:
+                self.probeFinished.emit(
+                    self.source_url, {}, [], 0, 0,
+                    f"Primary probe failed: {exc}",
+                )
+                return
+
+            if not primary_manga:
                 self.probeFinished.emit(
                     self.source_url, {}, [], 0, 0,
                     "Provider returned no manga info; the gallery may have been removed.",
                 )
                 return
 
-            chapters = provider.get_chapters(code) or []
-            known = _library().downloaded_chapter_numbers(self.source_url)
-
-            new_chapters = [c for c in chapters if str(c.number) not in known]
-            new_dicts = [_chapter_to_dict(c) for c in new_chapters]
-            manga_dict = _manga_info_to_dict(manga, code)
-
             try:
-                # Sync auto-status from the live manga while we're
-                # here — the user wants to know if a series went from
-                # Ongoing → Completed on the site.
                 _library().mark_checked(
                     self.source_url,
-                    manga_status=getattr(manga, "status", None),
+                    manga_status=getattr(primary_manga, "status", None),
                 )
             except Exception:
                 pass
 
+            primary_chapters = primary_provider.get_chapters(primary_code) or []
+            new_chapters = self._diff_against_disk(
+                primary_chapters, on_disk_chapters,
+            )
+
+            # ── Cross-site fallback ──────────────────────────────────
+            # Only when the primary site has nothing new for us AND
+            # the entry has alternative sources to try. We pick the
+            # first alt whose recorded max chapter clearly exceeds
+            # what's on disk (avoids re-probing every alt for nothing).
+            picked_alt_url: Optional[str] = None
+            if not new_chapters:
+                for alt in entry.get("alternative_sources") or []:
+                    alt_max = float(alt.get("chapter_count") or 0)
+                    if alt_max <= on_disk_max:
+                        continue
+                    alt_url = alt.get("url")
+                    if not alt_url or alt_url == self.source_url:
+                        continue
+                    alt_prov = get_provider_for_url(alt_url)
+                    if alt_prov is None:
+                        continue
+                    try:
+                        alt_code = alt_prov.extract_code(alt_url)
+                        alt_chapters = alt_prov.get_chapters(alt_code) or []
+                    except Exception:
+                        continue
+                    candidates = self._diff_against_disk(
+                        alt_chapters, on_disk_chapters,
+                    )
+                    if candidates:
+                        new_chapters = candidates
+                        picked_alt_url = alt_url
+                        # Re-fetch manga info on the alt provider so
+                        # the download dispatch points at the right
+                        # site. Cheaper than re-probing the chapter
+                        # list since we just fetched it above.
+                        try:
+                            alt_manga = alt_prov.get_manga_info(alt_code)
+                            if alt_manga:
+                                primary_manga = alt_manga
+                                primary_provider = alt_prov
+                                primary_code = alt_code
+                        except Exception:
+                            pass
+                        break
+
+            new_dicts = [_chapter_to_dict(c) for c in new_chapters]
+            manga_dict = _manga_info_to_dict(primary_manga, primary_code)
+
+            # If we fell back to an alt, the manga_dict's source_url
+            # is the alt's — which is what we want so the downloader
+            # uses the right provider / referer / etc.
             self.probeFinished.emit(
                 self.source_url, manga_dict, new_dicts,
-                len(chapters), len(chapters) - len(new_chapters), "",
+                len(primary_chapters) if not picked_alt_url else len(new_chapters) + len(on_disk_chapters),
+                len(on_disk_chapters),
+                "",
             )
 
         except Exception as exc:
             self.probeFinished.emit(self.source_url, {}, [], 0, 0, str(exc))
+
+    @staticmethod
+    def _on_disk_folder(entry: dict) -> Optional[Path]:
+        """
+        Compute the folder this library entry's chapters live in.
+        For iCloud-imported entries that's the iCloud subfolder; for
+        in-app downloads it's ``./downloads/<safe_title>/``. Returns
+        ``None`` if the entry is malformed.
+        """
+        if not entry:
+            return None
+        dp = entry.get("download_path") or ""
+        folder = entry.get("folder") or ""
+        if not dp or not folder:
+            return None
+        return Path(dp) / folder
+
+    @staticmethod
+    def _diff_against_disk(chapters: list, on_disk: set[str]) -> list:
+        """
+        Filter ``chapters`` (a list of Chapter objects from a
+        provider) to only those whose normalised number is NOT in
+        the on-disk set.
+        """
+        out = []
+        for ch in chapters:
+            n = _norm_chapter_number(getattr(ch, "number", ""))
+            if n and n not in on_disk:
+                out.append(ch)
+        return out
 
 
 class LibraryBridge(QObject):
