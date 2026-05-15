@@ -151,6 +151,66 @@ class RepackWorker(QThread):
             self.failed.emit(self.source_url, str(exc))
 
 
+class StatusCheckWorker(QThread):
+    """
+    Lightweight probe that ONLY refreshes the library's status_auto
+    for a single entry. Calls ``provider.get_manga_info()`` (which
+    carries the ``status`` field) and stamps ``mark_checked`` —
+    deliberately does NOT fetch the chapter list or dispatch any
+    download, unlike ``UpdateProbeWorker``.
+
+    Used by ``LibraryBridge.checkStatusAll()`` so the user can refresh
+    completion badges across the library without re-downloading
+    chapters they're missing.
+    """
+
+    # url, normalized_status, raw_status, error_message_or_empty
+    finished_one = pyqtSignal(str, str, str, str)
+
+    def __init__(self, source_url: str, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.source_url = source_url
+
+    def run(self) -> None:
+        try:
+            from src.providers import get_provider_for_url, SUPPORTED_SITES_HUMAN
+            from src.utils.library import (
+                shared as _library, normalize_status,
+            )
+
+            provider = get_provider_for_url(self.source_url)
+            if provider is None:
+                self.finished_one.emit(
+                    self.source_url, "", "",
+                    f"Unsupported source URL. Known: {SUPPORTED_SITES_HUMAN}",
+                )
+                return
+
+            code = provider.extract_code(self.source_url)
+            manga = provider.get_manga_info(code)
+            if not manga:
+                self.finished_one.emit(
+                    self.source_url, "", "",
+                    "Provider returned no manga info; the gallery may have been removed.",
+                )
+                return
+
+            raw = getattr(manga, "status", None) or ""
+            try:
+                _library().mark_checked(
+                    self.source_url, manga_status=raw,
+                )
+            except Exception:
+                pass
+
+            self.finished_one.emit(
+                self.source_url, normalize_status(raw), raw, "",
+            )
+
+        except Exception as exc:
+            self.finished_one.emit(self.source_url, "", "", str(exc))
+
+
 class UpdateProbeWorker(QThread):
     """Fetch the latest chapter list and diff against the library."""
 
@@ -192,7 +252,13 @@ class UpdateProbeWorker(QThread):
             manga_dict = _manga_info_to_dict(manga, code)
 
             try:
-                _library().mark_checked(self.source_url)
+                # Sync auto-status from the live manga while we're
+                # here — the user wants to know if a series went from
+                # Ongoing → Completed on the site.
+                _library().mark_checked(
+                    self.source_url,
+                    manga_status=getattr(manga, "status", None),
+                )
             except Exception:
                 pass
 
@@ -216,6 +282,18 @@ class LibraryBridge(QObject):
     repackProgress = pyqtSignal(str, int, int)           # url, done, total
     repackFinished = pyqtSignal(str, int, int, int)      # url, created, skipped, failed
     repackFailed = pyqtSignal(str, str)                  # url, error_message
+    # Bulk "Update All" lifecycle. Probes run sequentially (one at a
+    # time) to be polite to providers; downloads that result from them
+    # are kicked off as soon as each probe lands, so retrieval runs in
+    # parallel with the remaining probes via the normal DownloadBridge.
+    updateAllStarted = pyqtSignal(int, int)              # total, skipped_completed
+    updateAllProgress = pyqtSignal(int, int, str, str)   # done, total, current_url, current_title
+    updateAllFinished = pyqtSignal(int, int, int, int)   # with_updates, up_to_date, failed, skipped_completed
+    # Bulk "Check Status All" — like Update All but never triggers
+    # downloads. Lightweight (manga info only, no chapter list).
+    statusCheckAllStarted = pyqtSignal(int)              # total
+    statusCheckAllProgress = pyqtSignal(int, int, str, str)  # done, total, url, title
+    statusCheckAllFinished = pyqtSignal(int, int, int, int)  # completed, ongoing, unknown, failed
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -226,6 +304,21 @@ class LibraryBridge(QObject):
         # mid-run.
         self._workers: list[UpdateProbeWorker] = []
         self._repack_workers: list[RepackWorker] = []
+        # Bulk "Update All" state. Idle when _bulk_urls is empty.
+        self._bulk_urls: list[str] = []
+        self._bulk_idx: int = 0
+        # Tally: [with_updates, up_to_date, failed, skipped_completed]
+        self._bulk_stats: list[int] = [0, 0, 0, 0]
+        self._bulk_cancel: bool = False
+        # Bulk "Check Status All" state. Independent of Update All so
+        # both could run in parallel in principle — but the QML drives
+        # them mutually exclusively to avoid hammering providers.
+        self._status_urls: list[str] = []
+        self._status_idx: int = 0
+        # Tally: [completed, ongoing, unknown, failed]
+        self._status_stats: list[int] = [0, 0, 0, 0]
+        self._status_cancel: bool = False
+        self._status_workers: list[StatusCheckWorker] = []
 
     def attach_download_bridge(self, download_bridge) -> None:
         """Wire the DownloadBridge so update probes can launch downloads."""
@@ -277,6 +370,24 @@ class LibraryBridge(QObject):
             pass
 
     @pyqtSlot(str)
+    def openWebsite(self, source_url: str) -> None:
+        """
+        Open the comic's source page in the user's default browser.
+
+        Uses ``webbrowser.open`` for portability (cross-platform,
+        respects user defaults). We pass the URL straight from the
+        library entry — the library normalises it on insert so it's
+        always an absolute https:// URL.
+        """
+        if not source_url:
+            return
+        try:
+            import webbrowser
+            webbrowser.open(source_url)
+        except Exception:
+            pass
+
+    @pyqtSlot(str)
     def convertToCbz(self, source_url: str) -> None:
         """
         Pack every chapter folder of this manga into a sibling .cbz.
@@ -309,6 +420,21 @@ class LibraryBridge(QObject):
             pass
         worker.deleteLater()
 
+    @pyqtSlot(str, str, bool)
+    def setStatus(self, source_url: str, status: str, manual: bool) -> None:
+        """
+        Update an entry's status. ``manual=True`` flags the value as a
+        user override so the auto-tracker won't replace it on the next
+        probe; pass ``manual=False`` to clear the override (the next
+        probe will re-sync from the provider).
+
+        Accepts any user-typed string; the library normalises it.
+        ``""`` clears the status entirely.
+        """
+        from src.utils.library import shared as _library
+        if _library().set_status(source_url, status, manual=manual):
+            self.entriesChanged.emit()
+
     @pyqtSlot(str)
     def updateEntry(self, source_url: str) -> None:
         """
@@ -320,6 +446,201 @@ class LibraryBridge(QObject):
         worker.finished.connect(lambda w=worker: self._reap(w))
         self._workers.append(worker)
         worker.start()
+
+    @pyqtSlot()
+    def updateAll(self) -> None:
+        """
+        Probe every library entry for new chapters, one at a time.
+        Entries with a "completed" or "cancelled" status are skipped
+        (the site won't have new chapters for them) — both auto-tracked
+        status and a user "Mark as completed" override count here.
+
+        Each non-skipped probe still goes through the normal per-entry
+        handler, so per-card status messages, download dispatch, and
+        last_checked_at bookkeeping behave exactly as a manual update.
+        """
+        if self._bulk_urls:
+            # A bulk run is already in flight — second click is a no-op.
+            return
+
+        from src.utils.library import shared as _library
+        from src.utils.library import is_finished_status
+
+        entries = _library().list_entries()
+        urls: list[str] = []
+        skipped = 0
+        for e in entries:
+            url = e.get("source_url")
+            if not url:
+                continue
+            if is_finished_status(e.get("status") or ""):
+                skipped += 1
+                continue
+            urls.append(url)
+
+        # Always emit a started/finished pair so the GUI can show a
+        # summary (even when everything is completed and there's
+        # nothing to probe).
+        self.updateAllStarted.emit(len(urls), skipped)
+
+        if not urls:
+            self._bulk_stats = [0, 0, 0, skipped]
+            self.updateAllFinished.emit(*self._bulk_stats)
+            return
+
+        self._bulk_urls = urls
+        self._bulk_idx = 0
+        self._bulk_stats = [0, 0, 0, skipped]
+        self._bulk_cancel = False
+        self._run_next_bulk()
+
+    @pyqtSlot()
+    def cancelUpdateAll(self) -> None:
+        """Stop after the in-flight probe finishes."""
+        if self._bulk_urls:
+            self._bulk_cancel = True
+
+    @pyqtSlot()
+    def checkStatusAll(self) -> None:
+        """
+        Probe every library entry's status WITHOUT triggering any
+        downloads. Lighter than ``updateAll()`` — fetches manga info
+        only, skips the chapter list / diff / download pipeline.
+
+        Use this to refresh "Completed / Ongoing" badges across the
+        library after marking some manually, without committing to
+        re-fetching any chapters you might be missing.
+        """
+        if self._status_urls:
+            # Already running.
+            return
+
+        from src.utils.library import shared as _library
+        entries = _library().list_entries()
+        urls = [e.get("source_url") for e in entries if e.get("source_url")]
+
+        if not urls:
+            self.statusCheckAllFinished.emit(0, 0, 0, 0)
+            return
+
+        self._status_urls = urls
+        self._status_idx = 0
+        self._status_stats = [0, 0, 0, 0]
+        self._status_cancel = False
+        self.statusCheckAllStarted.emit(len(urls))
+        self._run_next_status_check()
+
+    @pyqtSlot()
+    def cancelCheckStatusAll(self) -> None:
+        """Stop after the in-flight status probe finishes."""
+        if self._status_urls:
+            self._status_cancel = True
+
+    def _run_next_status_check(self) -> None:
+        if self._status_cancel or self._status_idx >= len(self._status_urls):
+            self.statusCheckAllFinished.emit(*self._status_stats)
+            self._status_urls = []
+            self._status_idx = 0
+            self._status_cancel = False
+            return
+
+        url = self._status_urls[self._status_idx]
+
+        # Friendly title for the header banner — pulled from the
+        # library cache, same trick as updateAll.
+        from src.utils.library import shared as _library
+        entry = _library().get_entry(url) or {}
+        title = entry.get("title") or url
+        self.statusCheckAllProgress.emit(
+            self._status_idx + 1, len(self._status_urls), url, title,
+        )
+
+        worker = StatusCheckWorker(url, self)
+        worker.finished_one.connect(self._on_status_check_one_finished)
+        worker.finished.connect(lambda w=worker: self._reap_status(w))
+        self._status_workers.append(worker)
+        worker.start()
+
+    def _on_status_check_one_finished(
+        self, url: str, normalized: str, raw: str, error: str,
+    ) -> None:
+        # Bucket the result for the summary.
+        if error:
+            self._status_stats[3] += 1
+        elif normalized in ("completed", "cancelled"):
+            self._status_stats[0] += 1
+        elif normalized == "ongoing":
+            self._status_stats[1] += 1
+        else:
+            # hiatus / unknown / "" — still counts as "checked but
+            # nothing actionable for the skip-on-Update-All purpose."
+            self._status_stats[2] += 1
+
+        # Refresh the cached entries view so the badge updates
+        # immediately. (One emit per probe, like the Update All
+        # flow — cheap enough at this scale.)
+        self.entriesChanged.emit()
+
+        self._status_idx += 1
+        self._run_next_status_check()
+
+    def _reap_status(self, worker: "StatusCheckWorker") -> None:
+        try:
+            self._status_workers.remove(worker)
+        except ValueError:
+            pass
+        worker.deleteLater()
+
+    def _run_next_bulk(self) -> None:
+        if self._bulk_cancel or self._bulk_idx >= len(self._bulk_urls):
+            # Finished (cleanly or cancelled). Emit summary and reset.
+            self.updateAllFinished.emit(*self._bulk_stats)
+            self._bulk_urls = []
+            self._bulk_idx = 0
+            self._bulk_cancel = False
+            return
+
+        url = self._bulk_urls[self._bulk_idx]
+
+        # Use the cached library title so the header can show
+        # "Checking 7 of 47: <title>" while the probe is running.
+        from src.utils.library import shared as _library
+        entry = _library().get_entry(url) or {}
+        title = entry.get("title") or url
+        self.updateAllProgress.emit(
+            self._bulk_idx + 1, len(self._bulk_urls), url, title,
+        )
+
+        worker = UpdateProbeWorker(url, self)
+        worker.probeFinished.connect(self._on_bulk_probe_finished)
+        worker.finished.connect(lambda w=worker: self._reap(w))
+        self._workers.append(worker)
+        worker.start()
+
+    def _on_bulk_probe_finished(
+        self,
+        source_url: str,
+        manga_dict: dict,
+        new_chapters: list,
+        total_remote: int,
+        total_known: int,
+        error: str,
+    ) -> None:
+        # Tally results for the header summary.
+        if error:
+            self._bulk_stats[2] += 1
+        elif new_chapters:
+            self._bulk_stats[0] += 1
+        else:
+            self._bulk_stats[1] += 1
+        # Forward to the normal per-entry handler — same per-card
+        # status messages + download dispatch as a manual Update click.
+        self._on_probe_finished(
+            source_url, manga_dict, new_chapters, total_remote, total_known, error,
+        )
+        # Advance to the next URL.
+        self._bulk_idx += 1
+        self._run_next_bulk()
 
     # --- Internal ----------------------------------------------------
 
@@ -344,6 +665,13 @@ class LibraryBridge(QObject):
             return
 
         title = (manga_dict or {}).get("title", "Unknown")
+
+        # A successful probe updates last_checked_at and may flip
+        # status_auto. Refresh the cached entries view so the card
+        # picks up the new badge / timestamp. (Bulk-run probes also
+        # land here via _on_bulk_probe_finished, so this single signal
+        # is enough for both paths.)
+        self.entriesChanged.emit()
 
         if not new_chapters:
             self.noUpdatesAvailable.emit(source_url, title)

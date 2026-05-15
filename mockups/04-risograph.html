@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>04 / RISOGRAPH ZINE — comix</title>
+<link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:#f4eddc;
+  --paper-2:#ecdfc7;
+  --blue:#1547d8;   /* Riso Federal Blue */
+  --red:#ee2d3f;    /* Riso Fluorescent Red */
+  --green:#3b7048; /* Riso Green */
+  --ink:#1a1a1a;
+  --dim:#8a7a64;
+  --over: multiply; /* what makes riso look like riso */
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--paper); color:var(--ink); font-family:'Space Mono',monospace; min-height:100vh; }
+body {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,.5), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(255,255,255,.4), transparent 50%);
+  position:relative;
+}
+/* paper grain */
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:.55;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0.6 0 0 0 0 0.5 0 0 0 0 0.4 0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+.zine { max-width:1320px; margin:0 auto; padding:40px 56px 80px; position:relative; z-index:2; }
+
+/* MASTHEAD: heavy red+blue overlap */
+.mast { position:relative; padding:18px 0 32px; }
+.mast .tag-row { display:flex; justify-content:space-between; font-size:10px; letter-spacing:2px; text-transform:uppercase; padding-bottom:14px; border-bottom:2px solid var(--ink); }
+.mast .tag-row b { color:var(--red); font-weight:700; }
+.mast .stack { position:relative; padding:24px 0 12px; }
+.mast h1 { font-family:'Bagel Fat One',serif; font-size:170px; line-height:.85; letter-spacing:-.04em; color:var(--blue); text-transform:lowercase; mix-blend-mode: multiply; position:relative; }
+.mast h1 .shadow { position:absolute; left:6px; top:6px; color:var(--red); mix-blend-mode: multiply; z-index:-1; }
+.mast .right-card { position:absolute; top:32px; right:0; transform: rotate(-2.5deg); background:var(--red); color:var(--paper); padding:14px 22px; font-family:'Space Mono'; font-size:11px; letter-spacing:2px; text-transform:uppercase; line-height:1.6; box-shadow: 4px 4px 0 var(--blue); }
+.mast .right-card b { display:block; font-family:'Bagel Fat One'; font-size:26px; line-height:1; letter-spacing:-.03em; margin-bottom:4px; color:var(--paper); }
+.mast .strap { font-family:'DM Mono',monospace; font-size:14px; letter-spacing:.5px; color:var(--ink); padding-top:8px; max-width:680px; line-height:1.5; }
+.mast .strap em { background:var(--blue); color:var(--paper); padding:1px 6px; font-style:normal; }
+
+/* SECTION BARS */
+.bar-blue { background:var(--blue); color:var(--paper); padding:12px 18px; font-family:'Bagel Fat One'; font-size:22px; letter-spacing:-.01em; display:flex; justify-content:space-between; align-items:center; mix-blend-mode: multiply; }
+.bar-blue small { font-family:'Space Mono'; font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; opacity:.85; }
+.bar-red { background:var(--red); color:var(--paper); padding:8px 18px; font-family:'Space Mono'; font-size:11px; letter-spacing:3px; text-transform:uppercase; font-weight:700; mix-blend-mode: multiply; }
+
+/* NAV */
+.nav { display:flex; gap:8px; padding:18px 0; flex-wrap:wrap; }
+.nav .b { padding:10px 22px; font-family:'Space Mono'; font-size:12px; letter-spacing:2px; text-transform:uppercase; font-weight:700; border:2px solid var(--ink); background:var(--paper); cursor:pointer; transform: rotate(-1deg); }
+.nav .b:nth-child(2) { transform: rotate(1deg); }
+.nav .b:nth-child(3) { transform: rotate(-.5deg); }
+.nav .b:nth-child(4) { transform: rotate(.8deg); }
+.nav .b.on { background:var(--blue); color:var(--paper); border-color:var(--blue); }
+.nav .grow { flex:1; }
+.nav .info { padding:10px 22px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); font-weight:700; }
+.nav .info b { color:var(--red); }
+
+/* URL FORM */
+.url-block { margin-top:14px; padding:24px; border:3px solid var(--ink); background:var(--paper); position:relative; box-shadow: 8px 8px 0 var(--red); }
+.url-block .lbl { font-family:'Bagel Fat One'; font-size:30px; line-height:1; color:var(--blue); margin-bottom:14px; mix-blend-mode: multiply; }
+.url-block .field { display:grid; grid-template-columns: 1fr 180px; gap:14px; }
+.url-block input { background:var(--paper-2); border:2px dashed var(--ink); padding:18px 20px; font-family:'DM Mono',monospace; font-size:18px; outline:none; color:var(--ink); }
+.url-block button { background:var(--red); color:var(--paper); border:2px solid var(--ink); font-family:'Bagel Fat One'; font-size:20px; letter-spacing:-.01em; cursor:pointer; mix-blend-mode: multiply; }
+.url-block button:hover { background:var(--blue); }
+
+.tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+.tag { padding:5px 12px; border:2px solid var(--ink); font-family:'Space Mono'; font-size:11px; letter-spacing:1px; text-transform:lowercase; background:var(--paper); font-weight:700; }
+.tag.b { background:var(--blue); color:var(--paper); transform:rotate(-1deg); mix-blend-mode: multiply; }
+.tag.r { background:var(--red); color:var(--paper); transform:rotate(1deg); mix-blend-mode: multiply; }
+.tag.g { background:var(--green); color:var(--paper); transform:rotate(-.5deg); mix-blend-mode: multiply; }
+
+/* LAYOUT */
+.layout { display:grid; grid-template-columns: 1fr 380px; gap:36px; margin-top:48px; }
+
+/* LIBRARY GRID */
+.lib { display:grid; grid-template-columns: repeat(3, 1fr); gap:24px; }
+.bk { position:relative; cursor:pointer; transition: transform .15s; }
+.bk:hover { transform: translate(-2px,-2px) rotate(-.5deg); }
+.bk:nth-child(2n) { transform: rotate(.6deg); }
+.bk:nth-child(3n) { transform: rotate(-.4deg); }
+.bk .cov { aspect-ratio: 3/4; border:2px solid var(--ink); position:relative; overflow:hidden; box-shadow: 6px 6px 0 var(--ink); background:var(--paper-2); }
+.bk:hover .cov { box-shadow: 8px 8px 0 var(--red); }
+.bk .cov .blob1 { position:absolute; inset:0; background:var(--blue); mix-blend-mode: multiply; clip-path: polygon(0 0, 100% 0, 100% 60%, 65% 78%, 30% 70%, 0 88%); }
+.bk .cov .blob2 { position:absolute; inset:0; background:var(--red); mix-blend-mode: multiply; clip-path: polygon(20% 30%, 100% 40%, 100% 100%, 0 100%, 0 60%); }
+.bk .cov .num { position:absolute; bottom:8px; left:12px; font-family:'Bagel Fat One'; font-size:64px; line-height:.9; color:var(--paper); mix-blend-mode: screen; letter-spacing:-.04em; }
+.bk .cov .stamp { position:absolute; top:10px; right:10px; padding:4px 8px; background:var(--paper); border:2px solid var(--ink); font-family:'Space Mono'; font-size:10px; letter-spacing:2px; font-weight:700; transform: rotate(8deg); }
+.bk .meta { padding:14px 4px 4px; }
+.bk .meta .ttl { font-family:'Bagel Fat One'; font-size:22px; line-height:1; letter-spacing:-.01em; margin-bottom:6px; color:var(--ink); }
+.bk .meta .row { display:flex; justify-content:space-between; font-family:'Space Mono'; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; font-weight:700; color:var(--dim); }
+.bk .meta .row .src { color:var(--blue); }
+
+/* RISO RIGHT — PROGRESS */
+.queue { background:var(--paper); border:3px solid var(--ink); padding:0; position:sticky; top:24px; align-self:start; box-shadow: 8px 8px 0 var(--blue); }
+.queue .head { padding:16px 20px; background:var(--ink); color:var(--paper); display:flex; justify-content:space-between; align-items:center; }
+.queue .head h2 { font-family:'Bagel Fat One'; font-size:28px; letter-spacing:-.02em; line-height:1; color:var(--red); mix-blend-mode: screen; }
+.queue .head small { font-family:'Space Mono'; font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+.job { padding:18px 20px; border-bottom:2px dashed var(--ink); position:relative; }
+.job:last-child { border-bottom:none; }
+.job .from { font-family:'Space Mono'; font-size:9px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:var(--red); margin-bottom:4px; }
+.job h3 { font-family:'Bagel Fat One'; font-size:24px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; color:var(--ink); }
+.bar2 { height:18px; border:2px solid var(--ink); background:var(--paper-2); position:relative; overflow:hidden; margin:14px 0 10px; }
+.bar2::after { content:''; position:absolute; inset:0; background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(26,26,26,.06) 4px, rgba(26,26,26,.06) 8px); pointer-events:none; }
+.bar2 .fill { height:100%; background:var(--blue); mix-blend-mode: multiply; position:relative; }
+.bar2 .fill.r { background:var(--red); }
+.job .nums { display:flex; justify-content:space-between; font-family:'Space Mono'; font-size:11px; letter-spacing:1px; text-transform:uppercase; font-weight:700; }
+.job .nums b { color:var(--blue); }
+.job .nums .big { font-family:'Bagel Fat One'; font-size:26px; letter-spacing:-.02em; line-height:1; color:var(--red); mix-blend-mode: multiply; }
+
+/* FOOTER */
+.foot { margin-top:64px; padding-top:24px; border-top:3px solid var(--ink); display:flex; justify-content:space-between; align-items:baseline; font-family:'Space Mono'; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; font-weight:700; }
+.foot .stamp { padding:6px 14px; background:var(--red); color:var(--paper); transform: rotate(-2deg); mix-blend-mode: multiply; }
+.foot .pub { font-style:italic; font-weight:400; color:var(--dim); text-transform:none; letter-spacing:0; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="zine">
+  <header class="mast">
+    <div class="tag-row">
+      <div>ISSUE <b>№ 47</b> · MAY 2026</div>
+      <div>HAND-PRINTED IN PYTHON</div>
+      <div>EDITION OF <b>ONE</b></div>
+    </div>
+    <div class="stack">
+      <h1><span class="shadow">comix.</span>comix.</h1>
+      <div class="right-card">A DOWNLOADER<br><b>FOR FILE-LOVERS</b><br>SINCE 2024</div>
+    </div>
+    <p class="strap">A small, opinionated tool for retrieving manga, manhwa &amp; doujinshi as <em>local files</em> — not streams. Fourteen sources, three output formats, zero accounts, no telemetry.</p>
+  </header>
+
+  <div class="nav">
+    <button class="b">Browse</button>
+    <button class="b on">Library</button>
+    <button class="b">Queue</button>
+    <button class="b">Settings</button>
+    <div class="grow"></div>
+    <div class="info">47 vols · 2,184 ch · <b>18.4 GB</b></div>
+  </div>
+
+  <div class="url-block">
+    <div class="lbl">Paste a URL ↓</div>
+    <div class="field">
+      <input value="https://manhwabuddy.com/manhwa/forbidden-frequency/">
+      <button>FETCH! ⏎</button>
+    </div>
+    <div class="tags">
+      <span class="tag">comix</span>
+      <span class="tag">nhentai</span>
+      <span class="tag">hitomi</span>
+      <span class="tag">hentaifc</span>
+      <span class="tag">hentairead</span>
+      <span class="tag">hentaifox</span>
+      <span class="tag">toonily</span>
+      <span class="tag">manhwaread</span>
+      <span class="tag g">manhwabuddy ✓</span>
+      <span class="tag">manhwa18</span>
+      <span class="tag">mangadistrict</span>
+      <span class="tag">webtoonscan</span>
+      <span class="tag r">🔒 toomics</span>
+      <span class="tag">mangafire</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <main>
+      <div class="bar-blue">
+        On the <span style="color:var(--paper);">shelf</span>
+        <small>SORT · RECENT</small>
+      </div>
+      <div style="margin:18px 0 24px;" class="bar-red">six recent additions ↓</div>
+
+      <div class="lib">
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1"></div>
+            <div class="blob2"></div>
+            <div class="stamp">CBZ</div>
+            <div class="num">01</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Frozen Hours</div>
+            <div class="row"><span class="src">manhwabuddy</span><span>47 ch</span></div>
+          </div>
+        </div>
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1" style="clip-path:polygon(0 20%, 100% 0, 100% 100%, 0 60%);"></div>
+            <div class="blob2" style="clip-path:polygon(0 0, 70% 0, 100% 80%, 0 100%);"></div>
+            <div class="stamp">PDF</div>
+            <div class="num">02</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Lacquer Bridge</div>
+            <div class="row"><span class="src">toonily</span><span>12 ch</span></div>
+          </div>
+        </div>
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1" style="clip-path:circle(80% at 20% 20%);"></div>
+            <div class="blob2" style="clip-path:circle(60% at 90% 90%);"></div>
+            <div class="stamp">CBZ</div>
+            <div class="num">03</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Empty Train</div>
+            <div class="row"><span class="src">mangafire</span><span>218 ch</span></div>
+          </div>
+        </div>
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1" style="clip-path:polygon(0 0, 100% 30%, 80% 70%, 100% 100%, 0 100%);"></div>
+            <div class="blob2" style="clip-path:polygon(40% 0, 100% 0, 100% 50%, 0 100%);"></div>
+            <div class="stamp">IMG</div>
+            <div class="num">04</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Shadow Index</div>
+            <div class="row"><span class="src">hitomi</span><span>1 ch</span></div>
+          </div>
+        </div>
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1" style="clip-path:polygon(0 0, 60% 0, 100% 70%, 70% 100%, 0 80%);"></div>
+            <div class="blob2" style="clip-path:polygon(30% 30%, 100% 0, 100% 100%, 0 100%);"></div>
+            <div class="stamp">CBZ</div>
+            <div class="num">05</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Night-Iron</div>
+            <div class="row"><span class="src">comix.to</span><span>89 ch</span></div>
+          </div>
+        </div>
+        <div class="bk">
+          <div class="cov">
+            <div class="blob1" style="clip-path:circle(70% at 30% 80%);"></div>
+            <div class="blob2" style="clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%);"></div>
+            <div class="stamp">CBZ</div>
+            <div class="num">06</div>
+          </div>
+          <div class="meta">
+            <div class="ttl">Sky Chains</div>
+            <div class="row"><span class="src">manhwaread</span><span>33 ch</span></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="queue">
+      <div class="head">
+        <h2>NOW PRINTING</h2>
+        <small>2 jobs</small>
+      </div>
+      <div class="job">
+        <div class="from">FROM MANHWABUDDY</div>
+        <h3>Forbidden Frequency</h3>
+        <div class="bar2"><div class="fill" style="width:33%"></div></div>
+        <div class="nums">
+          <span>CH <b>14/42</b></span>
+          <span>PG <b>4/28</b></span>
+          <span class="big">33%</span>
+        </div>
+      </div>
+      <div class="job">
+        <div class="from">FROM MANGAFIRE</div>
+        <h3>Empty Train</h3>
+        <div class="bar2"><div class="fill r" style="width:99%"></div></div>
+        <div class="nums">
+          <span>CH <b>219/220</b></span>
+          <span>PG <b>27/28</b></span>
+          <span class="big">99%</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="foot">
+    <div class="stamp">PRINTED 23:41 · 15.V.MMXXVI</div>
+    <div class="pub">"To preserve, you must first download." — comix, vol. ii.</div>
+    <div>BUILD A91F · STABLE</div>
+  </footer>
+</div>
+</body>
+</html>

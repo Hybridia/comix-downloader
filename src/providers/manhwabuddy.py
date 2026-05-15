@@ -44,6 +44,14 @@ _META_DESC_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]+)"', re.IGNORECASE
 )
 _TITLE_RE = re.compile(r"<title>(.+?)</title>", re.IGNORECASE | re.DOTALL)
+# Series sidebar exposes a ``<li><h5>Status</h5><span>Completed</span></li>``
+# pair (no class on the span — the markup is dirt-simple). We anchor
+# on the ``<h5>Status</h5>`` label so future markup additions to that
+# block don't break us.
+_STATUS_RE = re.compile(
+    r'<h5[^>]*>\s*Status\s*</h5>\s*<span[^>]*>\s*([^<]+?)\s*</span>',
+    re.IGNORECASE,
+)
 # `<a href="/manhwa/<slug>/chapter-N/" title="<series> - Chapter N">
 #    <span class="chapter-name">Chapter N</span>` —
 # capture the href + the visible "Chapter N" label. data-date /
@@ -151,8 +159,8 @@ class ManhwabuddyProvider(Provider):
 
     def _parse_series_metadata(
         self, slug: str, html: str
-    ) -> tuple[str, list[str], Optional[str], str, bool]:
-        """Return (title, alt_titles, cover_url, description, is_nsfw)."""
+    ) -> tuple[str, list[str], Optional[str], str, bool, Optional[str]]:
+        """Return (title, alt_titles, cover_url, description, is_nsfw, status)."""
         title_m = _TITLE_RE.search(html)
         title = self._strip_title(title_m.group(1)) if title_m else slug
 
@@ -169,7 +177,12 @@ class ManhwabuddyProvider(Provider):
 
         is_nsfw = bool(_ADULT_BODY_RE.search(html))
 
-        return title, alts, cover, description, is_nsfw
+        status: Optional[str] = None
+        status_m = _STATUS_RE.search(html)
+        if status_m:
+            status = unescape(status_m.group(1)).strip() or None
+
+        return title, alts, cover, description, is_nsfw, status
 
     def _parse_chapters(
         self, slug: str, html: str
@@ -218,7 +231,7 @@ class ManhwabuddyProvider(Provider):
 
     def get_manga_info(self, code: str) -> Optional[MangaInfo]:
         html = self._fetch_series_page(code)
-        title, alts, cover, description, is_nsfw = self._parse_series_metadata(
+        title, alts, cover, description, is_nsfw, status = self._parse_series_metadata(
             code, html
         )
         chapters = self._parse_chapters(code, html)
@@ -232,7 +245,7 @@ class ManhwabuddyProvider(Provider):
             manga_type="manhwa",
             poster_url=cover,
             original_language="ko",
-            status=None,
+            status=status,
             latest_chapter=latest,
             is_nsfw=is_nsfw,
             description=description,

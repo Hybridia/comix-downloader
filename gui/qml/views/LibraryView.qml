@@ -7,20 +7,123 @@ Item {
     id: libraryView
 
     readonly property color bgCard: "#1C1C24"
+    readonly property color bgElevated: "#252530"
     readonly property color textPrimary: "#F5F5F0"
     readonly property color textSecondary: "#8B8B99"
     readonly property color textTertiary: "#5C5C66"
     readonly property color accentPrimary: "#E8A54B"
+    readonly property color borderColor: "#2A2A33"
 
+    // Master list from the bridge.
     property var entries: []
+    // Filtered + sorted view rendered by the Repeater.
+    property var visibleEntries: []
+    // Per-row state.
     property string busyUrl: ""
     property var statusByUrl: ({})  // source_url -> status string
 
+    // Toolbar state.
+    property string filterText: ""
+    property string sortMode: "last_downloaded"
+    // Three-state completion filter:
+    //  ""                — show everything (default)
+    //  "hide_completed"  — exclude completed / cancelled
+    //  "only_completed"  — show ONLY completed / cancelled
+    // The two toolbar chips are mutually exclusive (clicking one
+    // clears the other).
+    property string statusFilter: ""
+
+    // Bulk "Update All" state.
+    property bool bulkBusy: false
+    property int bulkDone: 0
+    property int bulkTotal: 0
+    property int bulkSkippedCompleted: 0
+    property string bulkCurrentTitle: ""
+    property string bulkSummary: ""
+
+    // Status-only check state (separate from Update All because it
+    // never triggers downloads; visually shares the same banner slot).
+    property bool statusBusy: false
+    property int statusDone: 0
+    property int statusTotal: 0
+    property string statusCurrentTitle: ""
+    property string statusSummary: ""
+
     function refresh() {
         entries = LibraryBridge.listEntries()
-        entryModel.clear()
+        applyFilterAndSort()
+    }
+
+    function applyFilterAndSort() {
+        var filter = (filterText || "").trim().toLowerCase()
+        var out = []
         for (var i = 0; i < entries.length; i++) {
-            entryModel.append({"source_url": entries[i].source_url})
+            var e = entries[i]
+            // Completion filter — three states. "Finished" means the
+            // site says completed OR cancelled (both = no new chapters).
+            if (statusFilter !== "") {
+                var s = e.status || ""
+                var finished = (s === "completed" || s === "cancelled")
+                if (statusFilter === "hide_completed" && finished) continue
+                if (statusFilter === "only_completed" && !finished) continue
+            }
+            if (filter.length > 0) {
+                var hit = false
+                var hay = (e.title || "").toLowerCase()
+                if (hay.indexOf(filter) >= 0) hit = true
+                if (!hit) {
+                    var alts = e.alt_titles || []
+                    for (var a = 0; a < alts.length; a++) {
+                        if ((alts[a] || "").toLowerCase().indexOf(filter) >= 0) {
+                            hit = true; break
+                        }
+                    }
+                }
+                if (!hit && (e.source || "").toLowerCase().indexOf(filter) >= 0) hit = true
+                if (!hit) continue
+            }
+            out.push(e)
+        }
+
+        function cmpStr(a, b) {
+            a = a || ""; b = b || ""
+            return a.localeCompare(b)
+        }
+        function cmpNum(a, b) { return (a || 0) - (b || 0) }
+
+        out.sort(function(a, b) {
+            switch (sortMode) {
+                case "last_downloaded":
+                    // Desc: newest activity first.
+                    return cmpStr(b.last_updated_at, a.last_updated_at)
+                          || cmpStr(b.added_at, a.added_at)
+                case "recently_added":
+                    // Desc: most-recently-added first.
+                    return cmpStr(b.added_at, a.added_at)
+                          || cmpStr(b.last_updated_at, a.last_updated_at)
+                case "name":
+                    return cmpStr((a.title || "").toLowerCase(),
+                                  (b.title || "").toLowerCase())
+                case "chapter_count":
+                    // Desc: biggest libraries first.
+                    return cmpNum(b.chapter_count, a.chapter_count)
+                          || cmpStr((a.title || "").toLowerCase(),
+                                    (b.title || "").toLowerCase())
+                case "site":
+                    var s = cmpStr((a.source || "").toLowerCase(),
+                                   (b.source || "").toLowerCase())
+                    if (s !== 0) return s
+                    return cmpStr((a.title || "").toLowerCase(),
+                                  (b.title || "").toLowerCase())
+            }
+            return 0
+        })
+
+        visibleEntries = out
+
+        entryModel.clear()
+        for (var j = 0; j < out.length; j++) {
+            entryModel.append({"source_url": out[j].source_url})
         }
     }
 
@@ -42,16 +145,25 @@ Item {
         statusByUrl = copy
     }
 
+    // Re-apply filter/sort whenever the toolbar changes. Cheap; we
+    // hold the master list in memory either way.
+    onFilterTextChanged: applyFilterAndSort()
+    onSortModeChanged: applyFilterAndSort()
+    onStatusFilterChanged: applyFilterAndSort()
+
     Component.onCompleted: refresh()
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
-        spacing: 20
+        spacing: 16
 
-        // HEADER
+        // -----------------------------------------------------------
+        // HEADER: title + global actions
+        // -----------------------------------------------------------
         RowLayout {
             Layout.fillWidth: true
+            spacing: 12
 
             ColumnLayout {
                 spacing: 4
@@ -71,19 +183,486 @@ Item {
 
             Item { Layout.fillWidth: true }
 
+            // CHECK STATUS — lightweight: refreshes the Completed /
+            // Ongoing badges across the library without fetching
+            // chapter lists or kicking off any downloads. Safe to
+            // click any time; use this when you just want to know
+            // which series are finished.
             Button {
-                text: "Refresh List"
+                id: checkStatusBtn
+                Layout.preferredHeight: 34
+                text: libraryView.statusBusy
+                      ? ("Cancel (" + libraryView.statusDone + " / "
+                         + libraryView.statusTotal + ")")
+                      : "◷ Check Status"
+                enabled: (entries.length > 0 || libraryView.statusBusy)
+                         && !libraryView.bulkBusy
+                onClicked: {
+                    if (libraryView.statusBusy) {
+                        LibraryBridge.cancelCheckStatusAll()
+                    } else {
+                        LibraryBridge.checkStatusAll()
+                    }
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: parent.enabled
+                           ? (libraryView.statusBusy
+                              ? (parent.hovered ? "#C45050" : "#A03A3A")
+                              : (parent.hovered ? bgElevated : "transparent"))
+                           : "transparent"
+                    border.width: 1
+                    border.color: parent.enabled
+                                  ? (libraryView.statusBusy
+                                     ? "#A03A3A"
+                                     : (parent.hovered ? accentPrimary : borderColor))
+                                  : borderColor
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: libraryView.statusBusy
+                           ? "#FFFFFF"
+                           : (parent.enabled ? textPrimary : textTertiary)
+                    font.pixelSize: 12
+                    font.weight: Font.Medium
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 14
+                    rightPadding: 14
+                }
+
+                ToolTip.visible: hovered && !libraryView.statusBusy
+                ToolTip.delay: 600
+                ToolTip.text: "Refresh Completed / Ongoing badges for every entry.\n" +
+                              "Does NOT download any chapters — safe to run any time."
+            }
+
+            // UPDATE ALL — sequentially probes every entry for new
+            // chapters AND downloads them. While the bulk run is in
+            // flight the button becomes a Cancel button. Tooltip
+            // spells out the side-effect so the button isn't a
+            // surprise.
+            Button {
+                id: updateAllBtn
+
+                ToolTip.visible: hovered && !libraryView.bulkBusy
+                ToolTip.delay: 600
+                ToolTip.text: "Check every entry for new chapters AND download them.\n" +
+                              "Completed / cancelled series are skipped automatically.\n" +
+                              "Use \"Check Status\" instead if you only want to refresh badges."
+                Layout.preferredHeight: 34
+                text: libraryView.bulkBusy
+                      ? ("Cancel (" + libraryView.bulkDone + " / "
+                         + libraryView.bulkTotal + ")")
+                      : "↻ Update All"
+                enabled: (entries.length > 0 || libraryView.bulkBusy)
+                         && !libraryView.statusBusy
+                onClicked: {
+                    if (libraryView.bulkBusy) {
+                        LibraryBridge.cancelUpdateAll()
+                    } else {
+                        LibraryBridge.updateAll()
+                    }
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: parent.enabled
+                           ? (libraryView.bulkBusy
+                              ? (parent.hovered ? "#C45050" : "#A03A3A")
+                              : (parent.hovered ? Qt.lighter(accentPrimary, 1.1)
+                                                 : accentPrimary))
+                           : "#3A3A45"
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.enabled
+                           ? (libraryView.bulkBusy ? "#FFFFFF" : "#1A1A1F")
+                           : textTertiary
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 14
+                    rightPadding: 14
+                }
+            }
+
+            Button {
+                Layout.preferredHeight: 34
+                text: "Refresh"
                 onClicked: libraryView.refresh()
+
+                background: Rectangle {
+                    radius: 6
+                    color: parent.hovered ? bgElevated : "transparent"
+                    border.width: 1
+                    border.color: borderColor
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: textSecondary
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 14
+                    rightPadding: 14
+                }
             }
         }
 
-        // EMPTY STATE
+        // -----------------------------------------------------------
+        // TOOLBAR: search + sort + count
+        // -----------------------------------------------------------
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            visible: entries.length > 0 || libraryView.filterText.length > 0
+
+            // Search field
+            Rectangle {
+                Layout.preferredHeight: 36
+                Layout.preferredWidth: 320
+                color: bgCard
+                radius: 8
+                border.color: searchField.activeFocus ? accentPrimary : borderColor
+                border.width: 1
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 8
+                    spacing: 8
+
+                    Text {
+                        text: "🔍"
+                        font.pixelSize: 13
+                        color: textTertiary
+                    }
+
+                    TextField {
+                        id: searchField
+                        Layout.fillWidth: true
+                        placeholderText: "Search by title, alt name, or site…"
+                        text: libraryView.filterText
+                        onTextChanged: libraryView.filterText = text
+                        color: textPrimary
+                        placeholderTextColor: textTertiary
+                        font.pixelSize: 13
+                        selectByMouse: true
+                        // Fusion-friendly palette overrides — see the
+                        // 2026-05-04 URL-field fix in CLAUDE.md.
+                        palette.text: textPrimary
+                        palette.placeholderText: textTertiary
+                        palette.highlight: accentPrimary
+                        palette.highlightedText: "#1A1A1F"
+                        selectionColor: accentPrimary
+                        selectedTextColor: "#1A1A1F"
+                        background: Item {}
+                    }
+
+                    Button {
+                        visible: libraryView.filterText.length > 0
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                        flat: true
+                        onClicked: {
+                            libraryView.filterText = ""
+                            searchField.text = ""
+                        }
+                        background: Rectangle {
+                            color: parent.hovered ? bgElevated : "transparent"
+                            radius: 4
+                        }
+                        contentItem: Text {
+                            text: "✕"
+                            color: textSecondary
+                            font.pixelSize: 11
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+            }
+
+            // Sort label
+            Text {
+                text: "Sort by"
+                font.pixelSize: 12
+                color: textSecondary
+            }
+
+            // Sort dropdown — uses a parallel array of (label, key)
+            // pairs so we can drive sortMode by a stable key while
+            // displaying friendly labels.
+            ComboBox {
+                id: sortCombo
+                Layout.preferredHeight: 36
+                Layout.preferredWidth: 200
+                model: [
+                    { label: "Last downloaded", key: "last_downloaded" },
+                    { label: "Recently added",  key: "recently_added"  },
+                    { label: "Name (A–Z)",      key: "name"            },
+                    { label: "Chapter count",   key: "chapter_count"   },
+                    { label: "Site",            key: "site"            }
+                ]
+                textRole: "label"
+                valueRole: "key"
+                currentIndex: 0
+                onActivated: libraryView.sortMode = model[currentIndex].key
+            }
+
+            // Completion filter chips — mutually exclusive. Clicking
+            // either toggles it; clicking the active one returns to
+            // "Show all". Style mirrors the sort dropdown's accent
+            // colour so the two filter controls feel related.
+            Component {
+                id: completionChip
+                Rectangle {
+                    id: chip
+                    // -- Public --
+                    property string label: ""
+                    property string filterKey: ""        // "" | "hide_completed" | "only_completed"
+                    property string tipText: ""
+                    property color activeColor: "#7CB342"
+                    readonly property bool active:
+                        libraryView.statusFilter === chip.filterKey
+
+                    Layout.preferredHeight: 36
+                    implicitWidth: chipRow.implicitWidth + 24
+                    radius: 18
+                    color: active ? Qt.darker(activeColor, 2.2) : bgCard
+                    border.color: active ? activeColor : borderColor
+                    border.width: 1
+
+                    RowLayout {
+                        id: chipRow
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        Text {
+                            text: chip.active ? "✓" : "○"
+                            font.pixelSize: 13
+                            color: chip.active ? chip.activeColor : textTertiary
+                        }
+                        Text {
+                            text: chip.label
+                            font.pixelSize: 12
+                            font.weight: chip.active ? Font.DemiBold : Font.Normal
+                            color: chip.active ? chip.activeColor : textSecondary
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        hoverEnabled: true
+                        // Clicking the active chip clears the filter;
+                        // clicking an inactive one switches to it
+                        // (auto-clearing the other since the QML
+                        // property is single-valued).
+                        onClicked: {
+                            libraryView.statusFilter = chip.active ? "" : chip.filterKey
+                        }
+                        ToolTip.visible: containsMouse
+                        ToolTip.delay: 600
+                        ToolTip.text: chip.tipText
+                    }
+                }
+            }
+
+            Loader {
+                Layout.preferredHeight: 36
+                sourceComponent: completionChip
+                onLoaded: {
+                    item.label = "Hide completed"
+                    item.filterKey = "hide_completed"
+                    item.tipText = "Hide series the site says are completed or cancelled.\n" +
+                                   "Update All already skips these automatically."
+                }
+            }
+
+            Loader {
+                Layout.preferredHeight: 36
+                sourceComponent: completionChip
+                onLoaded: {
+                    item.label = "Only completed"
+                    item.filterKey = "only_completed"
+                    item.tipText = "Show ONLY series the site says are completed.\n" +
+                                   "Useful to skim what's done before archiving."
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+
+            // Result counter — shows "showing N of M" when filtered
+            // (by search OR hide-completed); just "N titles" otherwise.
+            Text {
+                font.pixelSize: 12
+                color: textTertiary
+                text: {
+                    var n = libraryView.visibleEntries.length
+                    var m = libraryView.entries.length
+                    if (n !== m) {
+                        return "Showing " + n + " of " + m
+                    }
+                    return n + (n === 1 ? " title" : " titles")
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
+        // BULK PROGRESS / SUMMARY BANNER
+        // -----------------------------------------------------------
+        Rectangle {
+            id: bulkBanner
+            Layout.fillWidth: true
+            Layout.preferredHeight: bulkBanner.shown ? 48 : 0
+            visible: bulkBanner.shown
+            // The banner serves BOTH the Update All flow and the
+            // Check Status flow. They're mutually exclusive (the
+            // buttons disable each other) so we just toggle wording
+            // and colours based on which one is active or last ran.
+            color: bulkBanner.running ? bgCard : "#1F2E1A"
+            radius: 8
+            border.color: bulkBanner.running ? accentPrimary : "#4A7A3A"
+            border.width: 1
+
+            readonly property bool running:
+                libraryView.bulkBusy || libraryView.statusBusy
+            readonly property bool hasSummary:
+                libraryView.bulkSummary.length > 0
+                || libraryView.statusSummary.length > 0
+            readonly property bool shown: running || hasSummary
+
+            // Which flow is the banner currently representing? Update
+            // mode wins when both bulkBusy and statusBusy are true
+            // (impossible by gating, but defensive). When neither is
+            // running we pick whichever summary is non-empty.
+            readonly property string mode: {
+                if (libraryView.bulkBusy) return "update"
+                if (libraryView.statusBusy) return "status"
+                if (libraryView.bulkSummary.length > 0) return "update"
+                if (libraryView.statusSummary.length > 0) return "status"
+                return "update"
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 12
+
+                Text {
+                    text: bulkBanner.running ? "⟳" : "✓"
+                    font.pixelSize: 16
+                    color: bulkBanner.running ? accentPrimary : "#9CCB7F"
+
+                    RotationAnimation on rotation {
+                        running: bulkBanner.running
+                        from: 0
+                        to: 360
+                        duration: 1400
+                        loops: Animation.Infinite
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    color: textPrimary
+                    font.pixelSize: 13
+                    text: {
+                        if (libraryView.bulkBusy) {
+                            return "Updating " + libraryView.bulkDone
+                                 + " of " + libraryView.bulkTotal
+                                 + (libraryView.bulkCurrentTitle
+                                    ? ": " + libraryView.bulkCurrentTitle
+                                    : "…")
+                        }
+                        if (libraryView.statusBusy) {
+                            return "Checking status " + libraryView.statusDone
+                                 + " of " + libraryView.statusTotal
+                                 + (libraryView.statusCurrentTitle
+                                    ? ": " + libraryView.statusCurrentTitle
+                                    : "…")
+                        }
+                        return bulkBanner.mode === "update"
+                               ? libraryView.bulkSummary
+                               : libraryView.statusSummary
+                    }
+                }
+
+                // Progress bar — only while running. Uses whichever
+                // counter is active.
+                Rectangle {
+                    visible: bulkBanner.running
+                    Layout.preferredWidth: 180
+                    Layout.preferredHeight: 4
+                    color: bgElevated
+                    radius: 2
+
+                    Rectangle {
+                        height: parent.height
+                        radius: 2
+                        color: accentPrimary
+
+                        readonly property int done:
+                            libraryView.bulkBusy
+                            ? libraryView.bulkDone
+                            : libraryView.statusDone
+                        readonly property int total:
+                            libraryView.bulkBusy
+                            ? libraryView.bulkTotal
+                            : libraryView.statusTotal
+
+                        width: total > 0
+                               ? parent.width * (done / total)
+                               : 0
+                        Behavior on width { NumberAnimation { duration: 250 } }
+                    }
+                }
+
+                Button {
+                    visible: !bulkBanner.running && bulkBanner.hasSummary
+                    text: "✕"
+                    flat: true
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    onClicked: {
+                        libraryView.bulkSummary = ""
+                        libraryView.statusSummary = ""
+                    }
+
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? bgElevated : "transparent"
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: textSecondary
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
+        // EMPTY STATES
+        // -----------------------------------------------------------
+
+        // Library is completely empty.
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: bgCard
             radius: 12
-            visible: entryModel.count === 0
+            visible: entries.length === 0
 
             ColumnLayout {
                 anchors.centerIn: parent
@@ -117,7 +696,53 @@ Item {
             }
         }
 
+        // Library has entries but the current filter matches none.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            color: bgCard
+            radius: 12
+            visible: entries.length > 0 && entryModel.count === 0
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 8
+
+                Text {
+                    text: "🔍"
+                    font.pixelSize: 32
+                    color: textTertiary
+                    Layout.alignment: Qt.AlignHCenter
+                }
+                Text {
+                    text: "No titles match \"" + libraryView.filterText + "\""
+                    font.pixelSize: 14
+                    color: textPrimary
+                    Layout.alignment: Qt.AlignHCenter
+                }
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Clear search"
+                    flat: true
+                    onClicked: {
+                        libraryView.filterText = ""
+                        searchField.text = ""
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: accentPrimary
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle { color: "transparent" }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
         // ENTRY LIST
+        // -----------------------------------------------------------
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -149,11 +774,17 @@ Item {
                         onOpenFolderRequested: {
                             LibraryBridge.openFolder(model.source_url)
                         }
+                        onOpenWebsiteRequested: {
+                            LibraryBridge.openWebsite(model.source_url)
+                        }
                         onConvertToCbzRequested: {
                             libraryView.busyUrl = model.source_url
                             libraryView.setStatus(model.source_url,
                                                   "Packing chapters into CBZ…")
                             LibraryBridge.convertToCbz(model.source_url)
+                        }
+                        onStatusChangeRequested: function(statusKey, manual) {
+                            LibraryBridge.setStatus(model.source_url, statusKey, manual)
                         }
                     }
                 }
@@ -200,6 +831,73 @@ Item {
         function onRepackFailed(url, error) {
             libraryView.busyUrl = ""
             libraryView.setStatus(url, "Convert failed: " + error)
+        }
+
+        // Bulk Update All — header banner + per-row busy follow the
+        // sequentially-running probe.
+        function onUpdateAllStarted(total, skippedCompleted) {
+            libraryView.bulkBusy = total > 0
+            libraryView.bulkDone = 0
+            libraryView.bulkTotal = total
+            libraryView.bulkSkippedCompleted = skippedCompleted
+            libraryView.bulkCurrentTitle = ""
+            libraryView.bulkSummary = ""
+        }
+        function onUpdateAllProgress(done, total, url, title) {
+            // 'done' is the 1-based index of the entry being probed.
+            // Don't increment beyond total.
+            libraryView.bulkDone = Math.min(done, total)
+            libraryView.bulkTotal = total
+            libraryView.bulkCurrentTitle = title
+            libraryView.busyUrl = url
+            libraryView.setStatus(url, "Checking for new chapters…")
+        }
+        function onUpdateAllFinished(withUpdates, upToDate, failed, skippedCompleted) {
+            libraryView.bulkBusy = false
+            libraryView.busyUrl = ""
+            libraryView.bulkCurrentTitle = ""
+            var parts = []
+            if (withUpdates > 0) parts.push(withUpdates
+                + " with new chapter" + (withUpdates === 1 ? "" : "s"))
+            if (upToDate > 0) parts.push(upToDate + " up to date")
+            if (failed > 0) parts.push(failed + " failed")
+            if (skippedCompleted > 0) parts.push(skippedCompleted + " skipped (completed)")
+            libraryView.bulkSummary = parts.length
+                ? ("Update All complete — " + parts.join(", "))
+                : "Update All — nothing to check"
+        }
+
+        // Bulk Check Status — same shape as Update All but doesn't
+        // trigger downloads. Per-row "Checking status…" is set on
+        // each progress event so the row visibly updates.
+        function onStatusCheckAllStarted(total) {
+            libraryView.statusBusy = total > 0
+            libraryView.statusDone = 0
+            libraryView.statusTotal = total
+            libraryView.statusCurrentTitle = ""
+            libraryView.statusSummary = ""
+        }
+        function onStatusCheckAllProgress(done, total, url, title) {
+            libraryView.statusDone = Math.min(done, total)
+            libraryView.statusTotal = total
+            libraryView.statusCurrentTitle = title
+            libraryView.busyUrl = url
+            libraryView.setStatus(url, "Checking status…")
+        }
+        function onStatusCheckAllFinished(completed, ongoing, unknown, failed) {
+            libraryView.statusBusy = false
+            libraryView.busyUrl = ""
+            libraryView.statusCurrentTitle = ""
+            var parts = []
+            if (completed > 0) parts.push(completed + " completed")
+            if (ongoing > 0)   parts.push(ongoing + " ongoing")
+            if (unknown > 0)   parts.push(unknown + " unknown")
+            if (failed > 0)    parts.push(failed + " failed")
+            libraryView.statusSummary = parts.length
+                ? ("Status check complete — " + parts.join(", "))
+                : "Status check — nothing to do"
+            // Clear any lingering per-row "Checking status…" labels.
+            libraryView.statusByUrl = {}
         }
     }
 

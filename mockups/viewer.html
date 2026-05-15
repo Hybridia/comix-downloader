@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>comix — design viewer</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0c0c0e;
+  --bg-2:#16161a;
+  --ink:#f4f1ea;
+  --dim:#8a8680;
+  --dimmer:#55524d;
+  --accent:#ff5c3c;
+  --line:rgba(244,241,234,.08);
+  --line-2:rgba(244,241,234,.18);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { height:100%; overflow:hidden; }
+body {
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'JetBrains Mono', monospace;
+  display:grid;
+  grid-template-rows: auto 1fr auto;
+  height:100vh;
+}
+
+/* ===== TOP BAR ===== */
+.bar {
+  display:grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items:center;
+  padding:14px 24px;
+  border-bottom:1px solid var(--line);
+  background:var(--bg);
+  position:relative;
+  z-index:10;
+}
+.brand { display:flex; align-items:baseline; gap:14px; font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); }
+.brand b { font-family:'Fraunces',serif; font-size:18px; letter-spacing:-.02em; color:var(--ink); font-weight:400; text-transform:none; }
+.brand .dot { color:var(--accent); }
+
+.title-block { text-align:center; min-width:0; }
+.title-block .num { font-size:10px; letter-spacing:4px; color:var(--accent); text-transform:uppercase; font-weight:500; margin-bottom:4px; }
+.title-block h1 { font-family:'Fraunces',serif; font-size:22px; font-weight:400; letter-spacing:-.02em; line-height:1; }
+.title-block h1 em { font-style:italic; color:var(--accent); font-weight:300; }
+
+.tools { display:flex; justify-content:flex-end; align-items:center; gap:8px; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.tools b { color:var(--ink); }
+.tools .kbd { padding:3px 6px; border:1px solid var(--line-2); border-radius:3px; font-size:9px; color:var(--ink); margin-left:6px; background:var(--bg-2); }
+.tools a.open { margin-left:14px; padding:6px 12px; border:1px solid var(--accent); color:var(--accent); text-decoration:none; font-weight:500; transition: all .15s; }
+.tools a.open:hover { background:var(--accent); color:#000; }
+
+/* ===== STAGE ===== */
+.stage { position:relative; background:#000; overflow:hidden; }
+.stage iframe { width:100%; height:100%; border:none; display:block; opacity:0; transition: opacity .25s ease; }
+.stage iframe.shown { opacity:1; }
+.stage .loading {
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:11px; letter-spacing:4px; text-transform:uppercase; color:var(--dim);
+  pointer-events:none; opacity:1; transition: opacity .2s;
+}
+.stage .loading.hidden { opacity:0; }
+.stage .loading::after { content:''; display:inline-block; margin-left:14px; width:6px; height:6px; background:var(--accent); border-radius:50%; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity:.3; } }
+
+/* nav arrows on the stage edges */
+.arrow {
+  position:absolute; top:50%; transform:translateY(-50%);
+  width:48px; height:96px;
+  background:rgba(12,12,14,.6); backdrop-filter: blur(8px);
+  border:1px solid var(--line-2);
+  color:var(--ink);
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  font-size:24px;
+  z-index:5;
+  transition: all .15s;
+  font-family:'JetBrains Mono',monospace;
+}
+.arrow:hover { background:var(--accent); color:#000; border-color:var(--accent); }
+.arrow:disabled { opacity:.25; cursor:not-allowed; }
+.arrow:disabled:hover { background:rgba(12,12,14,.6); color:var(--ink); border-color:var(--line-2); }
+.arrow.left { left:16px; }
+.arrow.right { right:16px; }
+
+/* description overlay (toggleable) */
+.desc {
+  position:absolute; top:16px; right:16px;
+  max-width:340px; padding:18px 22px;
+  background:rgba(12,12,14,.85); backdrop-filter: blur(12px);
+  border:1px solid var(--line-2);
+  z-index:6;
+  font-size:11px; line-height:1.6; color:var(--ink);
+  opacity:0; pointer-events:none; transition: opacity .2s;
+}
+.desc.shown { opacity:1; pointer-events:auto; }
+.desc .h { font-size:10px; letter-spacing:3px; color:var(--accent); text-transform:uppercase; font-weight:500; margin-bottom:6px; }
+.desc h2 { font-family:'Fraunces',serif; font-size:20px; font-weight:400; line-height:1.1; letter-spacing:-.02em; margin-bottom:10px; }
+.desc h2 em { font-style:italic; color:var(--accent); font-weight:300; }
+.desc p { font-size:11px; color:var(--dim); line-height:1.6; margin-bottom:10px; }
+.desc p:last-child { margin-bottom:0; }
+.desc .specs { display:grid; grid-template-columns: 1fr 1fr; gap:8px 14px; padding-top:10px; border-top:1px solid var(--line); margin-top:8px; }
+.desc .specs span { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dimmer); display:block; }
+.desc .specs b { font-size:11px; color:var(--ink); font-weight:500; }
+.desc .close { position:absolute; top:8px; right:10px; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer; padding:4px; }
+.desc .close:hover { color:var(--accent); }
+
+/* ===== BOTTOM STRIP ===== */
+.strip {
+  display:grid; grid-template-columns: 1fr;
+  border-top:1px solid var(--line);
+  background:var(--bg);
+  padding:14px 24px;
+}
+.strip .thumbs { display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; }
+.thumb {
+  background:var(--bg-2);
+  border:1px solid var(--line);
+  padding:12px 14px;
+  cursor:pointer;
+  display:grid; grid-template-columns: 32px 1fr auto; gap:12px; align-items:center;
+  transition: all .15s;
+  text-align:left;
+}
+.thumb:hover { border-color:var(--line-2); background:#1c1c20; }
+.thumb.active { border-color:var(--accent); background:rgba(255,92,60,.06); }
+.thumb .n {
+  font-family:'Fraunces',serif; font-size:20px; font-weight:700; letter-spacing:-.04em;
+  color:var(--dim);
+}
+.thumb.active .n { color:var(--accent); }
+.thumb .info { min-width:0; }
+.thumb .info .nm {
+  font-size:12px; font-weight:500; letter-spacing:-.01em; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.thumb .info .tag {
+  font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  margin-top:2px;
+}
+.thumb .swatch {
+  width:24px; height:24px;
+  display:grid; grid-template-columns:1fr 1fr; gap:0;
+  border:1px solid var(--line-2);
+  flex-shrink:0;
+}
+.thumb .swatch span { display:block; }
+
+/* swatch palettes */
+.sw1 span:nth-child(1){background:#05050a;} .sw1 span:nth-child(2){background:#ff0080;}
+.sw1 span:nth-child(3){background:#00f0ff;} .sw1 span:nth-child(4){background:#e7ff00;}
+.sw2 span:nth-child(1){background:#f3eee4;} .sw2 span:nth-child(2){background:#0a0a0a;}
+.sw2 span:nth-child(3){background:#ff3a00;} .sw2 span:nth-child(4){background:#7a7670;}
+.sw3 span:nth-child(1){background:#f7f1e6;} .sw3 span:nth-child(2){background:#181314;}
+.sw3 span:nth-child(3){background:#a8281a;} .sw3 span:nth-child(4){background:#7c6535;}
+.sw4 span:nth-child(1){background:#f4eddc;} .sw4 span:nth-child(2){background:#1547d8;}
+.sw4 span:nth-child(3){background:#ee2d3f;} .sw4 span:nth-child(4){background:#3b7048;}
+.sw5 span:nth-child(1){background:#f8f1e1;} .sw5 span:nth-child(2){background:#a04a2e;}
+.sw5 span:nth-child(3){background:#7d9670;} .sw5 span:nth-child(4){background:#7a9ab0;}
+.sw6 span:nth-child(1){background:#ffffff;} .sw6 span:nth-child(2){background:#0a0a0a;}
+.sw6 span:nth-child(3){background:#ff2d2d;} .sw6 span:nth-child(4){background:#e8e6e0;}
+
+/* responsive */
+@media (max-width: 1100px) {
+  .strip .thumbs { grid-template-columns: repeat(3, 1fr); }
+  .desc { max-width:280px; }
+}
+@media (max-width: 700px) {
+  .strip .thumbs { grid-template-columns: repeat(2, 1fr); }
+  .tools { font-size:9px; }
+  .tools .kbd { display:none; }
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <b>comix<span class="dot">.</span></b>
+    <span>VISUAL DIRECTIONS · 6</span>
+  </div>
+  <div class="title-block">
+    <div class="num" id="hud-num">01 / 06</div>
+    <h1 id="hud-title">loading<em>…</em></h1>
+  </div>
+  <div class="tools">
+    <span id="hud-tag">—</span>
+    <button class="open" id="toggleDesc" style="background:none; border:1px solid var(--line-2); color:var(--ink); padding:6px 12px; font-family:inherit; font-size:10px; letter-spacing:2px; text-transform:uppercase; cursor:pointer; margin-left:14px;">Info <span class="kbd">i</span></button>
+    <a class="open" id="openFull" href="#" target="_blank">Open ↗ <span class="kbd">o</span></a>
+  </div>
+</header>
+
+<main class="stage" id="stage">
+  <div class="loading" id="loading">Loading design</div>
+  <iframe id="frame" src=""></iframe>
+
+  <button class="arrow left" id="prev" aria-label="Previous">‹</button>
+  <button class="arrow right" id="next" aria-label="Next">›</button>
+
+  <aside class="desc" id="desc">
+    <button class="close" id="closeDesc">×</button>
+    <div class="h" id="desc-num">DESIGN 01</div>
+    <h2 id="desc-h2">Neo-Tokyo <em>Terminal</em></h2>
+    <p id="desc-body"></p>
+    <div class="specs">
+      <div><span>Typeface</span><b id="desc-type"></b></div>
+      <div><span>Mood</span><b id="desc-mood"></b></div>
+    </div>
+  </aside>
+</main>
+
+<footer class="strip">
+  <div class="thumbs" id="thumbs"></div>
+</footer>
+
+<script>
+const designs = [
+  {
+    file: "01-neo-tokyo.html",
+    title: "Neo-Tokyo",
+    titleEm: "Terminal",
+    tag: "DARK · NEON · TERMINAL",
+    swatch: "sw1",
+    type: "Major Mono / JetBrains",
+    mood: "Cyber-noir",
+    body: "Pitch-black operator console laced with hot magenta and electric cyan, scanlines and grid overlays, mono type with Japanese accent characters. For when the app should feel like an instrument."
+  },
+  {
+    file: "02-mono-brutalism.html",
+    title: "Mono",
+    titleEm: "Brutalism",
+    tag: "PAPER · MONO · DIRECTORY",
+    swatch: "sw2",
+    type: "IBM Plex Mono",
+    mood: "File-system",
+    body: "Cream paper, ink-on-page, IBM Plex Mono everywhere. The library reads like a directory listing; progress bars are ASCII characters. Everything is fact, no decoration."
+  },
+  {
+    file: "03-editorial.html",
+    title: "Editorial",
+    titleEm: "Periodical",
+    tag: "SERIF · COLUMNED · CATALOGUE",
+    swatch: "sw3",
+    type: "Playfair / EB Garamond",
+    mood: "Curated periodical",
+    body: "The library as a serious quarterly: display-serif masthead, featured volume with drop-cap lede, two-column index of acquisitions, side dispatches for active downloads."
+  },
+  {
+    file: "04-risograph.html",
+    title: "Risograph",
+    titleEm: "Zine",
+    tag: "PRINT · OVERPRINT · ZINE",
+    swatch: "sw4",
+    type: "Bagel Fat One / Space Mono",
+    mood: "Print-shop zine",
+    body: "Two-color spot inks (federal blue, fluorescent red) with multiply blending, paper grain, slightly-rotated stickers, hard offset shadows. Hand-cut, joyful, a little messy on purpose."
+  },
+  {
+    file: "05-watercolor.html",
+    title: "Watercolor",
+    titleEm: "Atelier",
+    tag: "PAPER · SOFT · ATELIER",
+    swatch: "sw5",
+    type: "Shippori Mincho / Source Serif",
+    mood: "Quiet, organic",
+    body: "Warm cream paper, soft watercolor washes for covers, hand-lettered annotations in Caveat, Shippori Mincho for the bones. Hanko stamps and vertical kanji as quiet ornaments."
+  },
+  {
+    file: "06-swiss.html",
+    title: "Swiss",
+    titleEm: "Precision",
+    tag: "GRID · RED · INSTRUMENT",
+    swatch: "sw6",
+    type: "Archivo / Fraunces",
+    mood: "Museum instrument",
+    body: "Strict 12-column grid drawn in real lines, Archivo for everything mechanical, Fraunces italics as the only ornament, single bright red as the only accent. Numbers in tabular figures."
+  }
+];
+
+let currentIdx = 0;
+let descShown = false;
+
+const frame = document.getElementById('frame');
+const loading = document.getElementById('loading');
+const hudNum = document.getElementById('hud-num');
+const hudTitle = document.getElementById('hud-title');
+const hudTag = document.getElementById('hud-tag');
+const openFull = document.getElementById('openFull');
+const descNum = document.getElementById('desc-num');
+const descH2 = document.getElementById('desc-h2');
+const descBody = document.getElementById('desc-body');
+const descType = document.getElementById('desc-type');
+const descMood = document.getElementById('desc-mood');
+const desc = document.getElementById('desc');
+const prevBtn = document.getElementById('prev');
+const nextBtn = document.getElementById('next');
+const toggleDesc = document.getElementById('toggleDesc');
+const closeDesc = document.getElementById('closeDesc');
+const thumbsEl = document.getElementById('thumbs');
+
+function pad(n) { return String(n + 1).padStart(2, '0'); }
+
+function renderThumbs() {
+  thumbsEl.innerHTML = '';
+  designs.forEach((d, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'thumb' + (i === currentIdx ? ' active' : '');
+    btn.innerHTML = `
+      <div class="n">${pad(i)}</div>
+      <div class="info">
+        <div class="nm">${d.title} <em style="color:var(--accent); font-style:italic; font-family:Fraunces,serif; font-weight:300;">${d.titleEm}</em></div>
+        <div class="tag">${d.tag}</div>
+      </div>
+      <div class="swatch ${d.swatch}"><span></span><span></span><span></span><span></span></div>
+    `;
+    btn.addEventListener('click', () => goTo(i));
+    thumbsEl.appendChild(btn);
+  });
+}
+
+function show(idx) {
+  if (idx < 0 || idx >= designs.length) return;
+  currentIdx = idx;
+  const d = designs[idx];
+
+  frame.classList.remove('shown');
+  loading.classList.remove('hidden');
+
+  // small delay so the fade-out registers
+  setTimeout(() => {
+    frame.src = d.file;
+  }, 80);
+
+  // HUD
+  hudNum.textContent = `${pad(idx)} / ${pad(designs.length - 1)}`;
+  hudTitle.innerHTML = `${d.title} <em>${d.titleEm}</em>`;
+  hudTag.textContent = d.tag;
+  openFull.href = d.file;
+
+  // Description card
+  descNum.textContent = `DESIGN ${pad(idx)}`;
+  descH2.innerHTML = `${d.title} <em>${d.titleEm}</em>`;
+  descBody.textContent = d.body;
+  descType.textContent = d.type;
+  descMood.textContent = d.mood;
+
+  // Buttons
+  prevBtn.disabled = idx === 0;
+  nextBtn.disabled = idx === designs.length - 1;
+
+  // Thumbs
+  document.querySelectorAll('.thumb').forEach((t, i) => {
+    t.classList.toggle('active', i === idx);
+  });
+
+  // URL hash sync for shareability
+  history.replaceState(null, '', `#${idx + 1}`);
+}
+
+function goTo(idx) {
+  show(((idx % designs.length) + designs.length) % designs.length);
+}
+function prev() { if (currentIdx > 0) show(currentIdx - 1); }
+function next() { if (currentIdx < designs.length - 1) show(currentIdx + 1); }
+
+function setDesc(open) {
+  descShown = open;
+  desc.classList.toggle('shown', open);
+}
+
+frame.addEventListener('load', () => {
+  if (frame.src && !frame.src.endsWith('about:blank')) {
+    frame.classList.add('shown');
+    loading.classList.add('hidden');
+  }
+});
+
+prevBtn.addEventListener('click', prev);
+nextBtn.addEventListener('click', next);
+toggleDesc.addEventListener('click', () => setDesc(!descShown));
+closeDesc.addEventListener('click', () => setDesc(false));
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'h':
+      prev(); e.preventDefault(); break;
+    case 'ArrowRight':
+    case 'l':
+    case ' ':
+      next(); e.preventDefault(); break;
+    case 'i':
+      setDesc(!descShown); e.preventDefault(); break;
+    case 'Escape':
+      if (descShown) setDesc(false); break;
+    case 'o':
+      window.open(designs[currentIdx].file, '_blank'); e.preventDefault(); break;
+    case '1': case '2': case '3': case '4': case '5': case '6': {
+      const n = parseInt(e.key, 10) - 1;
+      if (n >= 0 && n < designs.length) { goTo(n); e.preventDefault(); }
+      break;
+    }
+  }
+});
+
+// Init — honour hash if present (#1..#6)
+const hash = parseInt(window.location.hash.replace('#', ''), 10);
+const startIdx = (hash >= 1 && hash <= designs.length) ? hash - 1 : 0;
+
+renderThumbs();
+show(startIdx);
+</script>
+
+</body>
+</html>

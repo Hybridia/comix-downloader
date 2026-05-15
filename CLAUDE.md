@@ -452,6 +452,175 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-05-15 — Check Status All + Open Website
+- **New "Check Status" button** in the Library toolbar. Probes every
+  entry's status via ``StatusCheckWorker`` — a new lightweight worker
+  that ONLY calls ``provider.get_manga_info()`` to refresh
+  ``status_auto`` and stamps ``mark_checked``. Crucially: it does NOT
+  fetch chapter lists and never enters the download pipeline. Fixes
+  the foot-gun the user hit with Update All — clicking the obvious
+  refresh button shouldn't silently download chapters they didn't
+  ask for.
+- **Tooltips spell out the difference.** "Check Status" → "Does NOT
+  download any chapters — safe to run any time." "Update All" →
+  "Check every entry for new chapters AND download them. Use 'Check
+  Status' instead if you only want to refresh badges." The buttons
+  disable each other while one is in flight.
+- **Bridge surface** mirrors Update All:
+  ``checkStatusAll()`` / ``cancelCheckStatusAll()`` slots, signals
+  ``statusCheckAllStarted(total)``,
+  ``statusCheckAllProgress(done, total, url, title)``,
+  ``statusCheckAllFinished(completed, ongoing, unknown, failed)``.
+  State (``_status_urls`` / ``_status_idx`` / ``_status_stats``) is
+  fully independent of the Update All state so concurrent runs are
+  *possible* — but the QML gates them mutually exclusively to be
+  polite to providers.
+- **Shared banner.** The Update All / Check Status / Summary banner
+  is one component that flips wording + colour based on which flow
+  is running ("Updating N of M…" vs "Checking status N of M…").
+  Saves a chunk of duplicated QML.
+- **New "🔗 Website" button** on every Library card. Sits in a
+  side-by-side row with "📂 Folder" so the card height doesn't
+  grow. Calls ``LibraryBridge.openWebsite(source_url)`` which uses
+  ``webbrowser.open()`` (cross-platform, respects the user's
+  default browser). Tooltip shows the exact URL so it's clear what
+  will open.
+
+### 2026-05-15 — Status extraction for 5 more providers
+- Added ``status`` parsing to **manhwaread**, **manhwabuddy**,
+  **manhwa18**, **mangadistrict**, and **webtoonscan**. The audit two
+  hours earlier said 7 providers don't expose status; this brings it
+  down to 2 (mangafire + toomics). Coverage now: **12 of 14 providers
+  auto-report status**, of which 6 also include "always complete"
+  single-gallery sites (nhentai, hitomi, hentaifc, hentairead,
+  hentaifox, comix.to).
+- Markup patterns (each anchored on the ``Status`` label to survive
+  unrelated DOM changes):
+    - **manhwaread** — ``<span class="manga-status" data-status="X">``.
+      Cleanest: read the attribute, not the i18n'd visible label.
+    - **manhwabuddy** — ``<li><h5>Status</h5><span>X</span></li>``.
+      Plain HTML; no class on the value span, so we anchor on the H5.
+    - **manhwa18** — ``<span class="info-name">Status:</span>
+      <span class="info-value"><a>X</a></span>``. Value is wrapped in
+      an ``<a>`` linking to a filter URL; regex strips the wrapper.
+      Site uses literal **"On going"** (with a space) for ongoing.
+    - **mangadistrict** / **webtoonscan** — Madara theme:
+      ``<div class="summary-heading"><h5>Status</h5></div>
+      <div class="summary-content">X</div>``. Identical pattern, so
+      the same regex works on both. Mangadistrict uses **"OnGoing"**
+      (one word, mixed case).
+- **Normalizer hardened.** ``normalize_status()`` now collapses
+  internal whitespace + hyphens before matching, so "On going" /
+  "On-going" / "on  going" / "OnGoing" all resolve to ``ongoing``.
+  Added ``"releasing"`` (mangafire's term, for when we extract it
+  there too) and ``"current"`` (some Madara variants) to the ongoing
+  set. Verified live against all 4 patched sites — manhwa18's
+  "On going", mangadistrict's "OnGoing", manhwabuddy's "Completed",
+  manhwaread's ``data-status="completed"`` all map correctly.
+- **What's left:**
+    - **mangafire** doesn't render the series page in the initial
+      HTTP response (the 27 KB body is just header chrome — the
+      manga detail is mounted by JS). Would need to extract status
+      from the Playwright-rendered DOM in ``mangafire_vrf.py``,
+      which is a bigger change. Marked as follow-up.
+    - **toomics** is paid-auth. Status is presumably visible on
+      logged-in viewer pages, but parsing it requires the cookie
+      path and isn't worth it until there's a use case beyond
+      "skip Update All for finished series" — which is solved
+      for toomics by the manual ✋ "Mark as Completed" override.
+- **Unset-pill CTA polish.** When ``status == ""`` the badge now
+  shows **"+ Set status"** in amber (the accent colour) instead of
+  a dim grey "? Status?". The pill reads as a call-to-action; users
+  can't miss it. The tooltip also points to Update as the primary
+  way to fetch status, with manual marking as the fallback.
+
+### 2026-05-15 — Library: completion status tracking
+- **New per-entry status field**: ``status`` (one of ``completed`` /
+  ``cancelled`` / ``hiatus`` / ``ongoing`` / ``""``), with companion
+  fields ``status_auto`` (last provider-reported value) and
+  ``status_manual`` (user override flag). Normalised through
+  ``src/utils/library.py::normalize_status()`` from arbitrary
+  provider strings (handles "Completed" / "complete" / "End" /
+  "Publishing" / "Ongoing" / 完結 / etc., plus substring fallbacks).
+- **Status pill on every LibraryCard.** Colour-coded badge with a
+  ✓/●/⏸/✕/? glyph; click opens a popup menu to override
+  (Completed / Ongoing / Hiatus / Cancelled / Use site status).
+  A ✋ glyph appears when the user has set a manual override; the
+  tooltip surfaces the site-reported value when it disagrees.
+- **"Hide completed" toolbar toggle.** When on, completed and
+  cancelled entries are filtered from the grid (client-side, like
+  search/sort). Counter row shows "Showing N of M" when any filter
+  is active.
+- **Update All skips completed/cancelled entries automatically.**
+  ``LibraryBridge.updateAll()`` partitions entries into a "to-probe"
+  list and a "skipped" count before iterating. New signal arity:
+  ``updateAllStarted(total, skipped)`` and
+  ``updateAllFinished(with_updates, up_to_date, failed, skipped)``.
+  The header summary spells out skipped count so it's not silent.
+- **Auto status is re-synced on every probe.** ``mark_checked()``
+  takes an optional ``manga_status`` kwarg; ``UpdateProbeWorker``
+  passes ``manga.status`` so Ongoing → Completed transitions on the
+  site land in the library on the next Update click.
+- **Provider reality (per audit 2026-05-15):** 6 providers expose
+  reliable status (the 5 single-gallery NSFW sites + comix), 1
+  parses it (toonily — value strings vary; we normalise), and 7 do
+  not expose it at all (mangafire, toomics, manhwaread, manhwabuddy,
+  manhwa18, mangadistrict, webtoonscan). That's why the manual
+  override exists — auto-tracking alone covers maybe half the
+  catalogue. Adding status extraction to the Madara-themed sites
+  (manhwabuddy/manhwaread/mangadistrict/webtoonscan) is plausible
+  follow-up work; each parses the "Status" row from a sidebar that
+  uses very similar markup.
+- **Why "clear override" restores last-known auto, not ""**: the
+  obvious naive behaviour (set ``status=""``, ``manual=False``)
+  blanks the badge until the next probe re-syncs, which feels
+  broken if you just clicked "Use site status". The setter now
+  copies ``status_auto`` into ``status`` in that path.
+
+### 2026-05-15 — Library tab: Update All, search, sort
+- **Update All button** in the Library header. Probes every entry in
+  sequence (one at a time — politeness, not laziness; Playwright
+  providers can't safely run in parallel and rate-limited sites would
+  earn IP cooldowns under 30+ concurrent probes). Each probe still
+  funnels through ``LibraryBridge._on_probe_finished``, so per-card
+  status messages and the download-dispatch path are unchanged — the
+  bulk run is just a coordinator that emits header progress and tallies
+  results. Downloads kicked off by individual probes run in parallel
+  with subsequent probes via the existing multi-job DownloadBridge.
+- Bridge signals: ``updateAllStarted(total)``,
+  ``updateAllProgress(done, total, current_url, current_title)``,
+  ``updateAllFinished(with_updates, up_to_date, failed)``. Slot
+  ``updateAll()`` is a no-op if a bulk run is already in flight (second
+  click won't restart). ``cancelUpdateAll()`` sets a flag checked
+  between probes; the in-flight one always finishes (cancelling a
+  running QThread mid-network-call is messier than waiting 30s).
+- **Search field** in a new toolbar row. Case-insensitive substring
+  match against ``title``, ``alt_titles[]``, and ``source``. Filter is
+  client-side over the cached entries list — snappy, no bridge round
+  trips on every keystroke.
+- **Sort dropdown** with five modes, stored as stable keys not labels
+  so renaming is cosmetic-only: ``last_downloaded`` (default — matches
+  the existing newest-first behaviour), ``recently_added`` (by
+  ``added_at`` desc), ``name`` (A→Z), ``chapter_count`` (largest
+  libraries first), ``site`` (group by source, then by title). The old
+  bridge-side ``listEntries()`` sort is left alone — QML re-sorts the
+  master list locally via ``applyFilterAndSort()`` on filter/sort
+  change.
+- New view properties on ``LibraryView``: ``entries`` (master),
+  ``visibleEntries`` (filtered+sorted view), ``filterText``,
+  ``sortMode``, plus the bulk-progress state
+  (``bulkBusy``/``bulkDone``/``bulkTotal``/``bulkCurrentTitle``/
+  ``bulkSummary``). Two new empty states: library-actually-empty
+  (existing) and filter-matches-nothing (new, with "Clear search"
+  affordance).
+- **What I deliberately didn't do:** per-row cancel for individual
+  probes inside Update All. The in-flight probe can finish in seconds
+  for most providers, and adding a per-worker cancel ``threading.Event``
+  is a meaningful refactor of ``UpdateProbeWorker``. If the bulk run
+  needs to die immediately, the cancel button stops queuing further
+  entries — which is enough for the common case (47 entries, ~30s each
+  = "I'll wait the current one out").
+
 ### 2026-05-11 — mangadistrict.com provider (Madara, plain HTTP)
 - New `MangadistrictProvider` for `mangadistrict.com`. Standard
   Madara theme, but unlike webtoonscan it does NOT require

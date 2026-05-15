@@ -54,6 +54,16 @@ _OG_DESC_RE = re.compile(
     r'<meta\s+property="og:description"\s+content="([^"]+)"', re.IGNORECASE
 )
 _MANGA_ID_RE = re.compile(r'data-manga-id="(\d+)"', re.IGNORECASE)
+# `<span class="manga-status ..." data-status="completed">` — the
+# data-status attribute is the canonical machine-readable value
+# (lower-case, no whitespace). The visible label inside
+# `manga-status__label` is i18n'd / styled, so the attribute is
+# preferable. Library's normalize_status maps "completed" /
+# "ongoing" / "hiatus" / "cancelled" identically.
+_STATUS_RE = re.compile(
+    r'class="[^"]*manga-status[^"]*"[^>]*\bdata-status="([^"]+)"',
+    re.IGNORECASE,
+)
 # Each chapter is `<a href="/manhwa/<slug>/chapter-NN/" class="chapter-item" data-id="N">
 #   <span class="flex flex-col"><span class="text-gray-50 chapter-item__name">Chapter NN</span></span>
 #   <span class="chapter-item__date ml-auto text-gray-500 text-sm">DD/MM/YYYY</span>
@@ -149,7 +159,12 @@ class ManhwareadProvider(Provider):
             "description": "",
             "artists": [],
             "tags": [],
+            "status": None,
         }
+
+        status_m = _STATUS_RE.search(html)
+        if status_m:
+            out["status"] = status_m.group(1).strip()
 
         title_m = _TITLE_RE.search(html)
         if title_m:
@@ -299,7 +314,7 @@ class ManhwareadProvider(Provider):
             manga_type="manhwa",
             poster_url=meta.get("cover_url"),
             original_language="ko",
-            status=None,
+            status=meta.get("status"),
             final_chapter=str(chapter_count) if chapter_count else None,
             latest_chapter=str(chapter_count) if chapter_count else None,
             is_nsfw=True,

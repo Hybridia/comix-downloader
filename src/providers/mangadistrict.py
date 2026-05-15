@@ -65,6 +65,16 @@ _META_DESC_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]+)"', re.IGNORECASE
 )
 _ADULT_BODY_RE = re.compile(r'<body[^>]*\badult-content\b', re.IGNORECASE)
+# Madara's "Status" row in the summary sidebar:
+# ``<div class="post-content_item"><div class="summary-heading"><h5> Status </h5>
+# </div><div class="summary-content"> OnGoing </div></div>``. The text is
+# whitespace-padded and the casing is inconsistent ("OnGoing" / "Ongoing" /
+# "Completed"); the library's normalizer handles it.
+_STATUS_RE = re.compile(
+    r'<div[^>]*class="[^"]*summary-heading[^"]*"[^>]*>\s*<h5[^>]*>\s*Status\s*</h5>\s*</div>\s*'
+    r'<div[^>]*class="[^"]*summary-content[^"]*"[^>]*>\s*([^<]+?)\s*</div>',
+    re.IGNORECASE | re.DOTALL,
+)
 _CHAPTER_LI_RE = re.compile(
     r'<li[^>]*class="[^"]*wp-manga-chapter[^"]*"[^>]*>\s*'
     r'<a\s+href="([^"]+)"[^>]*>([^<]+)</a>',
@@ -134,8 +144,8 @@ class MangadistrictProvider(Provider):
 
     def _parse_series_metadata(
         self, slug: str, html: str
-    ) -> tuple[str, Optional[str], str, bool]:
-        """Return (title, cover_url, description, is_nsfw)."""
+    ) -> tuple[str, Optional[str], str, bool, Optional[str]]:
+        """Return (title, cover_url, description, is_nsfw, status)."""
         title_m = _TITLE_RE.search(html) or _OG_TITLE_RE.search(html)
         title = self._clean_text(title_m.group(1)) if title_m else slug
         # The og:title on this site ends with the literal hyphen-site
@@ -163,7 +173,13 @@ class MangadistrictProvider(Provider):
                     break
 
         is_nsfw = bool(_ADULT_BODY_RE.search(html))
-        return title, cover, description, is_nsfw
+
+        status: Optional[str] = None
+        status_m = _STATUS_RE.search(html)
+        if status_m:
+            status = unescape(status_m.group(1)).strip() or None
+
+        return title, cover, description, is_nsfw, status
 
     def _parse_chapters(self, html: str) -> list[tuple[str, str, str]]:
         """
@@ -224,7 +240,7 @@ class MangadistrictProvider(Provider):
 
     def get_manga_info(self, code: str) -> Optional[MangaInfo]:
         html = self._fetch_html(f"/series/{code}/")
-        title, cover, description, is_nsfw = self._parse_series_metadata(
+        title, cover, description, is_nsfw, status = self._parse_series_metadata(
             code, html
         )
         chapters = self._parse_chapters(html)
@@ -237,7 +253,7 @@ class MangadistrictProvider(Provider):
             manga_type="manhwa",
             poster_url=cover,
             original_language="ko",
-            status=None,
+            status=status,
             latest_chapter=latest,
             is_nsfw=is_nsfw,
             description=description,

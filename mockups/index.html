@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>comix — six visual directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,700;9..144,900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0e0e10;
+  --bg-2:#16161a;
+  --ink:#f4f1ea;
+  --dim:#8a8680;
+  --accent:#ff5c3c;
+  --line:rgba(244,241,234,.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--bg); color:var(--ink); font-family:'JetBrains Mono', monospace; min-height:100vh; }
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255,92,60,.05), transparent 70%),
+    var(--bg);
+}
+
+.wrap { max-width:1480px; margin:0 auto; padding:48px 56px 80px; }
+
+header.top { display:grid; grid-template-columns: 1fr auto; align-items:end; gap:48px; padding-bottom:36px; border-bottom:1px solid var(--line); }
+header.top .label { font-size:11px; letter-spacing:4px; text-transform:uppercase; color:var(--accent); font-weight:500; margin-bottom:16px; }
+header.top h1 { font-family:'Fraunces', serif; font-weight:300; font-size:96px; line-height:.95; letter-spacing:-.03em; }
+header.top h1 em { font-style:italic; color:var(--accent); font-weight:400; }
+header.top .right { text-align:right; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); line-height:1.8; }
+header.top .right b { color:var(--ink); font-weight:500; }
+
+.intro { padding:32px 0; border-bottom:1px solid var(--line); display:grid; grid-template-columns: 1fr 1fr; gap:64px; }
+.intro p { font-family:'Fraunces', serif; font-size:20px; line-height:1.5; color:var(--ink); font-weight:300; }
+.intro p em { color:var(--accent); font-style:italic; }
+.intro .pts { font-size:12px; line-height:2; color:var(--dim); }
+.intro .pts b { color:var(--ink); font-weight:500; }
+
+.grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:32px; margin-top:48px; }
+
+.card { background:var(--bg-2); border:1px solid var(--line); overflow:hidden; cursor:pointer; transition: all .25s ease; text-decoration:none; color:inherit; display:flex; flex-direction:column; }
+.card:hover { transform: translateY(-4px); border-color:var(--accent); box-shadow: 0 16px 48px -12px rgba(0,0,0,.6); }
+.card .preview { aspect-ratio: 16/10; position:relative; overflow:hidden; border-bottom:1px solid var(--line); }
+.card .preview iframe { position:absolute; top:0; left:0; width:200%; height:200%; transform: scale(0.5); transform-origin: top left; pointer-events:none; border:none; }
+.card .preview .badge { position:absolute; top:14px; left:14px; padding:6px 12px; background:rgba(14,14,16,.85); backdrop-filter: blur(8px); font-size:10px; letter-spacing:3px; color:var(--accent); border:1px solid var(--accent); font-weight:500; z-index:2; }
+.card .preview .hover-cta { position:absolute; bottom:14px; right:14px; padding:8px 14px; background:var(--accent); color:#000; font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; z-index:2; opacity:0; transition: opacity .2s; }
+.card:hover .preview .hover-cta { opacity:1; }
+.card .meta { padding:24px 28px; }
+.card .meta .n { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+.card .meta h3 { font-family:'Fraunces', serif; font-size:32px; font-weight:400; letter-spacing:-.02em; line-height:1.05; margin-bottom:6px; }
+.card .meta h3 em { font-style:italic; color:var(--accent); font-weight:300; }
+.card .meta p { font-size:12px; line-height:1.6; color:var(--dim); margin-top:14px; }
+.card .meta .specs { display:flex; gap:24px; margin-top:18px; padding-top:18px; border-top:1px solid var(--line); font-size:10px; letter-spacing:2px; text-transform:uppercase; }
+.card .meta .specs > div span { display:block; color:var(--dim); margin-bottom:3px; font-size:9px; }
+.card .meta .specs > div b { color:var(--ink); font-weight:500; }
+
+.footer { margin-top:80px; padding-top:32px; border-top:1px solid var(--line); display:flex; justify-content:space-between; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.footer b { color:var(--ink); font-weight:500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="label">⟶ comix · visual exploration</div>
+      <h1>Six <em>directions</em> for the same app.</h1>
+    </div>
+    <div class="right">
+      DATE <b>15 MAY 2026</b><br>
+      SCOPE <b>FULL APP</b><br>
+      SHOWING <b>LIBRARY</b> + ACTIVE DOWNLOADS<br>
+      CLICK A CARD TO OPEN
+    </div>
+  </header>
+
+  <section class="intro">
+    <p>Each mockup commits to a <em>distinct aesthetic</em> while showing the same information: brand, navigation, URL input with supported sites, library grid, and in-progress downloads. Pick a direction — or mix two — and the implementation will follow.</p>
+    <div class="pts">
+      → <b>Same content, six framings.</b> The data layer doesn't change; only the visual language does.<br>
+      → <b>Each is a complete page.</b> Open at 100% zoom, full-screen, in a browser.<br>
+      → <b>Live previews are scaled 50%</b> below — actual mockups are full size when opened.<br>
+      → <b>None are final.</b> They're conversation pieces, not specs.
+    </div>
+  </section>
+
+  <div class="grid">
+
+    <a class="card" href="01-neo-tokyo.html" target="_blank">
+      <div class="preview">
+        <iframe src="01-neo-tokyo.html"></iframe>
+        <div class="badge">01</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">DARK · NEON · TERMINAL</div>
+        <h3>Neo-Tokyo <em>Terminal</em></h3>
+        <p>A pitch-black operator console laced with hot magenta and electric cyan, scanlines and grid overlays, mono type with Japanese accent characters. For the user who wants the app to feel like an instrument.</p>
+        <div class="specs">
+          <div><span>Type</span><b>Major Mono / JetBrains</b></div>
+          <div><span>Mood</span><b>Cyber-noir</b></div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="02-mono-brutalism.html" target="_blank">
+      <div class="preview">
+        <iframe src="02-mono-brutalism.html"></iframe>
+        <div class="badge">02</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">PAPER · MONO · DIRECTORY</div>
+        <h3>Mono <em>Brutalism</em></h3>
+        <p>Cream paper, ink-on-page, IBM Plex Mono everywhere. The library reads like a directory listing; progress bars are ASCII characters; everything is fact, no decoration. For the user who values clarity over flourish.</p>
+        <div class="specs">
+          <div><span>Type</span><b>IBM Plex Mono</b></div>
+          <div><span>Mood</span><b>File-system</b></div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="03-editorial.html" target="_blank">
+      <div class="preview">
+        <iframe src="03-editorial.html"></iframe>
+        <div class="badge">03</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">SERIF · COLUMNED · CATALOGUE</div>
+        <h3>Editorial <em>Periodical</em></h3>
+        <p>The library as a serious quarterly: large display serif masthead, featured volume with drop-cap lede, two-column index of acquisitions, side dispatches for active downloads. For the user who treats their collection as a library, not a folder.</p>
+        <div class="specs">
+          <div><span>Type</span><b>Playfair / EB Garamond</b></div>
+          <div><span>Mood</span><b>Curated periodical</b></div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="04-risograph.html" target="_blank">
+      <div class="preview">
+        <iframe src="04-risograph.html"></iframe>
+        <div class="badge">04</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">PRINT · OVERPRINT · ZINE</div>
+        <h3>Risograph <em>Zine</em></h3>
+        <p>Two-color spot inks (federal blue, fluorescent red) with multiply blending, paper grain, slightly-rotated stickers, bold Bagel Fat One headers, hard offset shadows. Hand-cut, joyful, a little messy on purpose. For the user who reads the messy ones.</p>
+        <div class="specs">
+          <div><span>Type</span><b>Bagel Fat One / Space Mono</b></div>
+          <div><span>Mood</span><b>Print-shop zine</b></div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="05-watercolor.html" target="_blank">
+      <div class="preview">
+        <iframe src="05-watercolor.html"></iframe>
+        <div class="badge">05</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">PAPER · SOFT · ATELIER</div>
+        <h3>Watercolor <em>Atelier</em></h3>
+        <p>Warm cream paper, soft watercolor washes for covers, hand-lettered annotations in Caveat, Shippori Mincho for the bones. Hanko stamps and vertical kanji as quiet ornaments. For the user who keeps their books like other people keep gardens.</p>
+        <div class="specs">
+          <div><span>Type</span><b>Shippori Mincho / Source Serif</b></div>
+          <div><span>Mood</span><b>Quiet, organic</b></div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="06-swiss.html" target="_blank">
+      <div class="preview">
+        <iframe src="06-swiss.html"></iframe>
+        <div class="badge">06</div>
+        <div class="hover-cta">OPEN ↗</div>
+      </div>
+      <div class="meta">
+        <div class="n">GRID · RED · INSTRUMENT</div>
+        <h3>Swiss <em>Precision</em></h3>
+        <p>Strict 12-column grid drawn in actual lines, Archivo for everything mechanical, Fraunces italics as the only ornament, single bright red as the only accent. Numbers in tabular figures. For the user who reads spec sheets for fun.</p>
+        <div class="specs">
+          <div><span>Type</span><b>Archivo / Fraunces</b></div>
+          <div><span>Mood</span><b>Museum instrument</b></div>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+  <footer class="footer">
+    <div>COMIX · <b>VISUAL EXPLORATION</b> · 15.V.2026</div>
+    <div>SAME APP · <b>SIX FRAMINGS</b> · PICK ONE</div>
+  </footer>
+</div>
+</body>
+</html>

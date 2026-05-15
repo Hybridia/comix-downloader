@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>02 / MONO BRUTALISM — comix</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@200;300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:#f3eee4;
+  --paper-2:#ebe5d8;
+  --ink:#0a0a0a;
+  --dim:#7a7670;
+  --line:#0a0a0a;
+  --hot:#ff3a00;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--paper); color:var(--ink); font-family:'IBM Plex Mono',monospace; min-height:100vh; font-feature-settings:'ss01','ss02'; }
+body {
+  background-image:
+    linear-gradient(to right, rgba(10,10,10,.04) 1px, transparent 1px);
+  background-size: calc(100% / 12) 100%;
+}
+
+.app { max-width:1440px; margin:0 auto; }
+
+/* MASSIVE MASTHEAD */
+.mast { border-bottom:1px solid var(--ink); padding:24px 48px 0; position:relative; }
+.mast .row1 { display:flex; justify-content:space-between; align-items:flex-start; font-size:10px; letter-spacing:1px; text-transform:uppercase; padding-bottom:24px; }
+.mast .row1 b { font-weight:500; }
+.mast .row1 .right { text-align:right; }
+.mast .title { font-size:clamp(80px, 14vw, 220px); font-weight:200; letter-spacing:-.05em; line-height:.85; margin-bottom:12px; }
+.mast .title span { font-weight:700; }
+.mast .title .dot { display:inline-block; width:.4em; height:.4em; background:var(--hot); vertical-align:.18em; margin:0 .04em; }
+.mast .sub { display:flex; justify-content:space-between; font-size:10px; letter-spacing:2px; padding:14px 0; border-top:1px solid var(--ink); text-transform:uppercase; }
+
+/* NAV */
+.nav { display:flex; border-bottom:1px solid var(--ink); }
+.nav a { padding:18px 32px; border-right:1px solid var(--ink); font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--ink); text-decoration:none; cursor:pointer; }
+.nav a.on { background:var(--ink); color:var(--paper); }
+.nav .grow { flex:1; border-right:none; }
+.nav .right { padding:18px 32px; font-size:10px; letter-spacing:2px; color:var(--dim); text-transform:uppercase; }
+.nav .right b { color:var(--ink); }
+
+/* COMMAND ROW */
+.cmd-wrap { padding:32px 48px; border-bottom:1px solid var(--ink); }
+.cmd-label { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+.cmd { display:grid; grid-template-columns: 40px 1fr 200px; align-items:stretch; border:1px solid var(--ink); background:var(--paper); }
+.cmd .gt { display:flex; align-items:center; justify-content:center; border-right:1px solid var(--ink); font-size:18px; }
+.cmd input { background:transparent; border:none; outline:none; padding:18px 16px; font-family:inherit; font-size:18px; color:var(--ink); letter-spacing:-.01em; }
+.cmd .go { border:none; border-left:1px solid var(--ink); background:var(--ink); color:var(--paper); font-family:inherit; font-size:11px; letter-spacing:3px; cursor:pointer; }
+.cmd .go:hover { background:var(--hot); color:var(--paper); }
+
+.providers { display:grid; grid-template-columns: repeat(7, 1fr); gap:0; border:1px solid var(--ink); border-top:none; }
+.p { padding:10px 12px; border-right:1px solid var(--ink); border-top:1px solid var(--ink); font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); position:relative; }
+.p:nth-child(7n) { border-right:none; }
+.p.match { background:var(--ink); color:var(--paper); }
+.p.match::after { content:' ✓'; color:var(--hot); }
+.p.locked::before { content:'☉ '; }
+
+/* MAIN GRID */
+.body { display:grid; grid-template-columns: 1fr 360px; border-bottom:1px solid var(--ink); }
+.left { border-right:1px solid var(--ink); }
+.right { padding:32px; }
+
+/* LIBRARY AS DIRECTORY LISTING */
+.dir-head { padding:24px 48px; display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--ink); }
+.dir-head h2 { font-size:36px; font-weight:300; letter-spacing:-.02em; }
+.dir-head h2 b { background:var(--hot); color:var(--paper); padding:0 .15em; font-weight:700; }
+.dir-head .info { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+
+.lib-table { width:100%; }
+.lib-table .head-row { display:grid; grid-template-columns: 40px 2fr 1fr 80px 100px 60px; padding:10px 48px; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); border-bottom:1px solid var(--ink); }
+.row { display:grid; grid-template-columns: 40px 2fr 1fr 80px 100px 60px; padding:18px 48px; border-bottom:1px solid rgba(10,10,10,.12); align-items:center; cursor:pointer; transition: background .1s; }
+.row:hover { background:var(--paper-2); }
+.row .n { font-size:11px; color:var(--dim); font-weight:300; }
+.row .t { font-size:15px; font-weight:500; letter-spacing:-.01em; }
+.row .t small { display:block; font-size:9px; font-weight:300; color:var(--dim); letter-spacing:1px; text-transform:uppercase; margin-top:2px; }
+.row .src { font-size:10px; letter-spacing:1px; text-transform:uppercase; }
+.row .ch { font-size:14px; font-weight:400; font-variant-numeric:tabular-nums; }
+.row .size { font-size:11px; font-variant-numeric:tabular-nums; color:var(--dim); }
+.row .fmt { font-size:9px; letter-spacing:2px; text-transform:uppercase; padding:3px 6px; border:1px solid var(--ink); display:inline-block; }
+.row.now { background:var(--paper-2); }
+.row.now .t::before { content:'▸ '; color:var(--hot); }
+
+/* RIGHT — TERMINAL */
+.term { font-size:11px; line-height:1.7; }
+.term .label { font-size:9px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); margin-bottom:6px; }
+.term h3 { font-size:22px; font-weight:300; letter-spacing:-.02em; margin-bottom:28px; }
+.term h3 b { background:var(--ink); color:var(--paper); padding:0 .15em; font-weight:700; }
+
+.job-block { padding:18px 0; border-top:1px solid var(--ink); }
+.job-block:last-of-type { border-bottom:1px solid var(--ink); }
+.job-block .jt { font-size:13px; font-weight:500; letter-spacing:-.01em; margin-bottom:4px; }
+.job-block .js { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); margin-bottom:14px; }
+.ascii-bar { font-size:13px; letter-spacing:1px; line-height:1; margin:8px 0; font-variant-numeric:tabular-nums; }
+.ascii-bar .filled { color:var(--ink); }
+.ascii-bar .empty { color:rgba(10,10,10,.18); }
+.ascii-bar .pct { float:right; font-weight:500; }
+.job-block .meta { display:flex; justify-content:space-between; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); margin-top:10px; }
+.job-block .meta b { color:var(--ink); }
+
+.log { margin-top:32px; padding:14px; background:var(--ink); color:var(--paper); font-size:10px; line-height:1.7; max-height:200px; overflow:hidden; }
+.log .l { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.log .l .t { color:#aaa; }
+.log .l .ok { color:#9aff9a; }
+.log .l .err { color:var(--hot); }
+.log .l .info { color:#9adcff; }
+
+.foot { padding:18px 48px; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); display:flex; justify-content:space-between; }
+.foot b { color:var(--ink); font-weight:500; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="mast">
+    <div class="row1">
+      <div>NO. <b>2.6.5</b> · BUILD <b>A91F</b> · CHANNEL <b>STABLE</b></div>
+      <div class="right">FRI <b>15 MAY 2026</b> · <b>23:41 CET</b></div>
+    </div>
+    <h1 class="title">co<span>m</span>ix<span class="dot"></span><span>·</span></h1>
+    <div class="sub">
+      <span>A DOWNLOADER FOR PRINT-BOUND THINGS &amp; READERS WHO PREFER FILES TO STREAMS</span>
+      <span>FOURTEEN PROVIDERS · INDEFINITE EDITIONS</span>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a>BROWSE</a>
+    <a class="on">LIBRARY</a>
+    <a>DOWNLOADS</a>
+    <a>SETTINGS</a>
+    <div class="grow"></div>
+    <div class="right">47 TITLES · 2,184 CHAPTERS · <b>18.4 GB</b> ON DISK</div>
+  </nav>
+
+  <section class="cmd-wrap">
+    <div class="cmd-label">Paste a source URL</div>
+    <div class="cmd">
+      <div class="gt">»</div>
+      <input value="https://mangafire.to/manga/oushuu-tairiku-no-tabi.l3k53">
+      <button class="go">FETCH ⏎</button>
+    </div>
+    <div class="providers">
+      <div class="p">comix.to</div>
+      <div class="p">nhentai.to</div>
+      <div class="p">hitomi.la</div>
+      <div class="p">hentaifc</div>
+      <div class="p">hentairead</div>
+      <div class="p">hentaifox</div>
+      <div class="p">toonily</div>
+      <div class="p">manhwaread</div>
+      <div class="p">manhwabuddy</div>
+      <div class="p">manhwa18</div>
+      <div class="p">mangadistrict</div>
+      <div class="p">webtoonscan</div>
+      <div class="p locked">toomics</div>
+      <div class="p match">mangafire</div>
+    </div>
+  </section>
+
+  <section class="body">
+    <div class="left">
+      <div class="dir-head">
+        <h2>The <b>Library</b></h2>
+        <div class="info">DIR · /downloads · SORTED RECENT</div>
+      </div>
+      <div class="lib-table">
+        <div class="head-row">
+          <div>#</div><div>TITLE</div><div>SOURCE</div><div>CHAP.</div><div>SIZE</div><div>FMT</div>
+        </div>
+        <div class="row now">
+          <div class="n">001</div>
+          <div class="t">Oushuu Tairiku no Tabi <small>kawamoto · 2024</small></div>
+          <div class="src">mangafire.to</div>
+          <div class="ch">14 / 42</div>
+          <div class="size">downloading</div>
+          <div><span class="fmt">CBZ</span></div>
+        </div>
+        <div class="row">
+          <div class="n">002</div>
+          <div class="t">Frozen Hours of the Inner City <small>vol. i — iv</small></div>
+          <div class="src">manhwabuddy</div>
+          <div class="ch">47</div>
+          <div class="size">412.8 MB</div>
+          <div><span class="fmt">CBZ</span></div>
+        </div>
+        <div class="row">
+          <div class="n">003</div>
+          <div class="t">Smoke Above the Lacquer Bridge <small>limited run</small></div>
+          <div class="src">toonily.com</div>
+          <div class="ch">12</div>
+          <div class="size">94.0 MB</div>
+          <div><span class="fmt">PDF</span></div>
+        </div>
+        <div class="row">
+          <div class="n">004</div>
+          <div class="t">A Beast Walks the Empty Train <small>complete</small></div>
+          <div class="src">mangafire.to</div>
+          <div class="ch">218</div>
+          <div class="size">2.31 GB</div>
+          <div><span class="fmt">CBZ</span></div>
+        </div>
+        <div class="row">
+          <div class="n">005</div>
+          <div class="t">Shadow Index, Volume Two <small>doujinshi</small></div>
+          <div class="src">hitomi.la</div>
+          <div class="ch">1</div>
+          <div class="size">38.9 MB</div>
+          <div><span class="fmt">IMG</span></div>
+        </div>
+        <div class="row">
+          <div class="n">006</div>
+          <div class="t">Night-Iron, the Returning <small>weekly serial</small></div>
+          <div class="src">comix.to</div>
+          <div class="ch">89</div>
+          <div class="size">1.09 GB</div>
+          <div><span class="fmt">CBZ</span></div>
+        </div>
+        <div class="row">
+          <div class="n">007</div>
+          <div class="t">Chains of the Provisional Sky</div>
+          <div class="src">manhwaread</div>
+          <div class="ch">33</div>
+          <div class="size">301.4 MB</div>
+          <div><span class="fmt">CBZ</span></div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="right">
+      <div class="term">
+        <div class="label">— ACTIVE</div>
+        <h3>2 jobs <b>running</b></h3>
+
+        <div class="job-block">
+          <div class="jt">Oushuu Tairiku no Tabi</div>
+          <div class="js">CH 14 / 42 · MANGAFIRE · CBZ</div>
+          <div class="ascii-bar">
+            <span class="filled">█████████████</span><span class="empty">░░░░░░░░░░░░░░░░░░░░░░░░░░░</span>
+            <span class="pct">33%</span>
+          </div>
+          <div class="meta">
+            <span>PAGE <b>04 / 28</b></span>
+            <span>2.1 MB/s</span>
+            <span>ETA <b>00:04:21</b></span>
+          </div>
+        </div>
+
+        <div class="job-block">
+          <div class="jt">A Beast Walks the Empty Train</div>
+          <div class="js">CH 219 / 220 · MANGAFIRE · CBZ</div>
+          <div class="ascii-bar">
+            <span class="filled">███████████████████████████████████████</span><span class="empty">░</span>
+            <span class="pct">99%</span>
+          </div>
+          <div class="meta">
+            <span>PAGE <b>27 / 28</b></span>
+            <span>finalising</span>
+            <span>ETA <b>00:00:08</b></span>
+          </div>
+        </div>
+
+        <div class="log">
+          <div class="l"><span class="t">23:41:08</span> <span class="ok">[ok]</span> mangafire vrf captured</div>
+          <div class="l"><span class="t">23:41:09</span> <span class="info">[net]</span> rate 4.0 req/s · host: mangafire</div>
+          <div class="l"><span class="t">23:41:11</span> <span class="ok">[ok]</span> chap 14 → 28 images queued</div>
+          <div class="l"><span class="t">23:41:14</span> <span class="ok">[ok]</span> image 03/28 received (842 KB)</div>
+          <div class="l"><span class="t">23:41:15</span> <span class="info">[plan]</span> next-up: chap 15 (cooldown 1.4s)</div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <footer class="foot">
+    <div>COMIX · A FILE-FIRST READER · SINGLE-AUTHOR PROJECT</div>
+    <div>NO TELEMETRY · NO ACCOUNTS · NO CLOUD · <b>JUST FILES</b></div>
+  </footer>
+</div>
+</body>
+</html>

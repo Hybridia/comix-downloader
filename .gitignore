@@ -139,6 +139,8 @@ celerybeat.pid
 .envrc
 secrets.json
 library.json
+icloud_inventory.json
+icloud_inventory.md
 .venv
 env/
 venv/

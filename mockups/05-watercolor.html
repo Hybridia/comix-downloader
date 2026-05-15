@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>05 / WATERCOLOR ATELIER — comix</title>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;1,8..60,400&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:#f8f1e1;
+  --paper-2:#efe5cd;
+  --ink:#2a2018;
+  --ink-2:#4a3a2c;
+  --sage:#7d9670;
+  --sage-2:#4f6849;
+  --terra:#c98155;
+  --rust:#a04a2e;
+  --sky:#7a9ab0;
+  --gold:#b58a3c;
+  --dim:#8c7a64;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--paper); color:var(--ink); font-family:'Source Serif 4', Georgia, serif; min-height:100vh; }
+body {
+  background:
+    radial-gradient(ellipse 800px 600px at 15% 10%, rgba(125,150,112,.10), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 95% 30%, rgba(201,129,85,.08), transparent 65%),
+    radial-gradient(ellipse 900px 700px at 50% 100%, rgba(122,154,176,.07), transparent 65%),
+    var(--paper);
+  background-attachment: fixed;
+  position:relative;
+}
+/* watercolor paper texture */
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='paper'%3E%3CfeTurbulence baseFrequency='.65' numOctaves='2' seed='9'/%3E%3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.45 0 0 0 0 0.35 0 0 0 0.13 0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23paper)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+.studio { max-width:1380px; margin:0 auto; padding:48px 64px 80px; position:relative; z-index:2; }
+
+/* MASTHEAD */
+.mast { display:grid; grid-template-columns: 1fr auto; align-items:end; gap:48px; padding-bottom:36px; position:relative; }
+.mast::after { content:''; position:absolute; left:0; right:0; bottom:0; height:1px; background:linear-gradient(to right, transparent, var(--ink-2) 20%, var(--ink-2) 80%, transparent); opacity:.4; }
+
+.brand-mark { position:relative; }
+.brand-mark .kana { font-family:'Shippori Mincho', serif; font-size:22px; letter-spacing:8px; color:var(--rust); margin-bottom:10px; }
+.brand-mark h1 { font-family:'Shippori Mincho', serif; font-size:96px; font-weight:500; line-height:.95; letter-spacing:-.02em; color:var(--ink); margin-bottom:8px; }
+.brand-mark h1 .ink-stroke { color:var(--rust); position:relative; }
+.brand-mark h1 .ink-stroke::after { content:''; position:absolute; left:-4px; right:-4px; bottom:8%; height:14px; background:rgba(160,74,46,.18); mix-blend-mode:multiply; transform:skewX(-12deg); border-radius:30% 70% 30% 70%; z-index:-1; }
+.brand-mark .tag { font-family:'Caveat', cursive; font-size:24px; color:var(--sage-2); margin-top:12px; transform: rotate(-1deg); display:inline-block; }
+.brand-mark .stamp { position:absolute; top:6px; left:-30px; transform:rotate(-18deg); width:54px; height:54px; border:2px solid var(--rust); border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:'Shippori Mincho'; font-size:14px; color:var(--rust); opacity:.5; }
+
+.mast-meta { text-align:right; font-family:'Source Serif 4'; font-size:13px; line-height:1.8; color:var(--ink-2); font-style:italic; }
+.mast-meta b { color:var(--ink); font-style:normal; font-weight:500; }
+.mast-meta .dt { font-family:'Caveat', cursive; font-size:20px; color:var(--rust); font-style:normal; margin-bottom:4px; }
+
+/* NAV */
+.nav { display:flex; align-items:center; gap:0; margin-top:32px; padding:14px 0; border-bottom:1px solid rgba(42,32,24,.15); }
+.nav a { padding:0 28px; font-family:'Shippori Mincho', serif; font-size:18px; font-weight:400; color:var(--ink-2); text-decoration:none; cursor:pointer; position:relative; }
+.nav a:not(:first-child)::before { content:'·'; position:absolute; left:-2px; color:var(--gold); }
+.nav a.on { color:var(--rust); font-weight:500; }
+.nav a.on::after { content:''; position:absolute; left:28px; right:28px; bottom:-15px; height:2px; background:var(--rust); border-radius:2px; }
+.nav .grow { flex:1; }
+.nav .stats { font-family:'Caveat', cursive; font-size:20px; color:var(--sage-2); padding:0 8px; }
+.nav .stats b { color:var(--ink); font-weight:700; }
+
+/* URL BAR */
+.compose { margin-top:36px; padding:28px 32px; background:rgba(248,241,225,.65); border:1px solid rgba(42,32,24,.12); border-radius:8px; box-shadow: 0 2px 0 rgba(42,32,24,.04), inset 0 1px 0 rgba(255,255,255,.4); backdrop-filter: blur(2px); }
+.compose .lbl { font-family:'Caveat', cursive; font-size:22px; color:var(--sage-2); margin-bottom:10px; }
+.compose .row { display:grid; grid-template-columns: 1fr 180px; gap:18px; }
+.compose input { background:rgba(255,255,255,.4); border:none; border-bottom:1px solid rgba(42,32,24,.3); outline:none; padding:14px 0; font-family:'Source Serif 4', serif; font-size:20px; color:var(--ink); font-style:italic; }
+.compose input:focus { border-bottom-color:var(--rust); }
+.compose button { background:transparent; border:2px solid var(--rust); color:var(--rust); padding:0 20px; font-family:'Shippori Mincho', serif; font-size:16px; font-weight:500; letter-spacing:2px; cursor:pointer; border-radius:6px; transition: all .2s; }
+.compose button:hover { background:var(--rust); color:var(--paper); }
+
+.little { font-family:'Caveat', cursive; font-size:18px; color:var(--sage-2); margin-top:16px; line-height:1.5; }
+.little b { color:var(--rust); font-weight:700; }
+
+.providers { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:18px; }
+.p { font-family:'Source Serif 4'; font-size:13px; color:var(--ink-2); padding:3px 0; position:relative; }
+.p::after { content:''; position:absolute; left:0; right:0; bottom:0; height:2px; background:currentColor; opacity:.12; }
+.p.match { color:var(--rust); font-weight:500; }
+.p.match::after { opacity:.6; background:var(--rust); }
+.p.locked::before { content:'· '; color:var(--gold); }
+
+/* LAYOUT */
+.cols { display:grid; grid-template-columns: 1fr 360px; gap:56px; margin-top:48px; }
+
+.section-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:28px; position:relative; }
+.section-head h2 { font-family:'Shippori Mincho', serif; font-size:44px; font-weight:500; letter-spacing:-.02em; line-height:1; }
+.section-head h2 em { font-style:italic; color:var(--rust); font-weight:400; }
+.section-head .scrib { font-family:'Caveat', cursive; font-size:24px; color:var(--sage-2); transform: rotate(-2deg); display:inline-block; }
+.section-head .scrib::before { content:'— '; color:var(--gold); }
+
+/* LIBRARY GRID — soft watercolor cards */
+.lib { display:grid; grid-template-columns: repeat(3, 1fr); gap:32px 28px; }
+.book { cursor:pointer; transition: transform .25s ease; position:relative; }
+.book:nth-child(odd) { transform: rotate(-.4deg); }
+.book:nth-child(even) { transform: rotate(.4deg); }
+.book:hover { transform: translateY(-4px) rotate(0); }
+.book .cov { aspect-ratio: 3/4; position:relative; overflow:hidden; border-radius:3px; box-shadow:
+  0 2px 0 rgba(42,32,24,.05),
+  0 12px 24px -10px rgba(42,32,24,.25),
+  inset 0 0 0 1px rgba(255,255,255,.08); }
+.book .cov .wash { position:absolute; inset:0; }
+.book .cov .wash::after { content:''; position:absolute; inset:0; background-image:
+  radial-gradient(circle at 30% 30%, rgba(255,255,255,.25), transparent 50%);
+  mix-blend-mode: overlay;
+}
+.book .cov .frame { position:absolute; inset:8px; border:1px solid rgba(248,241,225,.4); pointer-events:none; }
+.book .cov .kanji { position:absolute; top:14px; left:14px; font-family:'Shippori Mincho', serif; font-size:42px; color:rgba(248,241,225,.92); line-height:.9; font-weight:500; writing-mode: vertical-rl; }
+.book .cov .seal { position:absolute; bottom:12px; right:12px; width:34px; height:34px; background:var(--rust); border:1px solid rgba(248,241,225,.4); border-radius:4px; display:flex; align-items:center; justify-content:center; font-family:'Shippori Mincho'; color:var(--paper); font-size:14px; opacity:.94; box-shadow: 0 0 0 1px var(--rust) inset; }
+.book .meta { padding:14px 4px 0; }
+.book .meta .ttl { font-family:'Shippori Mincho', serif; font-size:18px; font-weight:500; line-height:1.25; color:var(--ink); margin-bottom:4px; letter-spacing:-.01em; }
+.book .meta .sub { font-family:'Source Serif 4'; font-size:12px; font-style:italic; color:var(--dim); display:flex; justify-content:space-between; }
+.book .meta .sub b { font-style:normal; color:var(--rust); font-weight:500; }
+
+/* color washes — 6 different palettes */
+.w1 { background: radial-gradient(ellipse at 30% 30%, #b8d4a4, transparent 60%), radial-gradient(ellipse at 70% 70%, #6a8260, transparent 60%), #4f6849; }
+.w2 { background: radial-gradient(ellipse at 40% 30%, #e8c894, transparent 55%), radial-gradient(ellipse at 70% 80%, #b07043, transparent 55%), #7a4828; }
+.w3 { background: radial-gradient(ellipse at 30% 30%, #c0d0dc, transparent 60%), radial-gradient(ellipse at 70% 60%, #5a7488, transparent 60%), #3e556a; }
+.w4 { background: radial-gradient(ellipse at 30% 30%, #e0bcc8, transparent 55%), radial-gradient(ellipse at 70% 70%, #a06478, transparent 55%), #6c4054; }
+.w5 { background: radial-gradient(ellipse at 30% 30%, #d4d0a0, transparent 55%), radial-gradient(ellipse at 70% 70%, #918458, transparent 55%), #6a5e34; }
+.w6 { background: radial-gradient(ellipse at 30% 30%, #b8a4c4, transparent 55%), radial-gradient(ellipse at 70% 70%, #6a5278, transparent 55%), #44324e; }
+
+/* SIDEBAR */
+.atelier { position:sticky; top:24px; align-self:start; }
+.box { padding:24px 28px; background:rgba(248,241,225,.7); border:1px solid rgba(42,32,24,.12); border-radius:8px; margin-bottom:24px; box-shadow: 0 2px 0 rgba(42,32,24,.04); backdrop-filter: blur(2px); }
+.box h3 { font-family:'Shippori Mincho'; font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:4px; line-height:1; }
+.box h3 em { color:var(--rust); font-weight:400; font-style:italic; }
+.box .sub { font-family:'Caveat', cursive; font-size:18px; color:var(--sage-2); margin-bottom:20px; }
+
+.work { padding:18px 0; border-top:1px dashed rgba(42,32,24,.18); }
+.work:first-of-type { border-top:none; padding-top:6px; }
+.work .from { font-family:'Caveat', cursive; font-size:16px; color:var(--rust); margin-bottom:2px; }
+.work .ttl { font-family:'Shippori Mincho'; font-size:18px; font-weight:500; line-height:1.2; margin-bottom:14px; }
+
+.arc { display:flex; align-items:center; gap:14px; margin:14px 0; }
+.arc svg { width:60px; height:60px; flex-shrink:0; }
+.arc .num { font-family:'Shippori Mincho'; font-size:28px; font-weight:500; line-height:1; color:var(--rust); letter-spacing:-.02em; }
+.arc .num small { font-family:'Caveat'; font-size:16px; color:var(--dim); font-weight:400; }
+.arc .deets { flex:1; font-family:'Source Serif 4'; font-size:13px; line-height:1.5; color:var(--ink-2); font-style:italic; }
+.arc .deets b { color:var(--ink); font-style:normal; font-weight:500; }
+
+.foot { margin-top:64px; padding-top:24px; border-top:1px solid rgba(42,32,24,.18); display:flex; justify-content:space-between; align-items:baseline; font-family:'Source Serif 4'; font-size:13px; color:var(--dim); font-style:italic; }
+.foot em { font-family:'Caveat', cursive; font-size:20px; color:var(--rust); font-style:normal; }
+</style>
+</head>
+<body>
+<div class="studio">
+  <header class="mast">
+    <div class="brand-mark">
+      <div class="stamp">印</div>
+      <div class="kana">コ ミ ッ ク ス</div>
+      <h1>comix<span class="ink-stroke">.</span></h1>
+      <div class="tag">a small atelier for keeping the things one reads</div>
+    </div>
+    <div class="mast-meta">
+      <div class="dt">friday, the fifteenth of may</div>
+      <div>volume <b>2.6.5</b>, build <b>a91f</b></div>
+      <div>fourteen quiet providers</div>
+      <div>forty-seven titles · <b>18.4 GB</b> in the shelf</div>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a>Browse</a>
+    <a class="on">Library</a>
+    <a>Now Painting</a>
+    <a>Preferences</a>
+    <div class="grow"></div>
+    <div class="stats">last opened <b>14 hours ago</b></div>
+  </nav>
+
+  <section class="compose">
+    <div class="lbl">a link, if you have one ↓</div>
+    <div class="row">
+      <input value="https://manhwabuddy.com/manhwa/forbidden-frequency/">
+      <button>retrieve →</button>
+    </div>
+    <div class="little">i recognise this one — looks like <b>manhwabuddy</b>. forty-two chapters await.</div>
+    <div class="providers">
+      <span class="p">comix.to</span>
+      <span class="p">nhentai.to</span>
+      <span class="p">hitomi.la</span>
+      <span class="p">hentaifc</span>
+      <span class="p">hentairead</span>
+      <span class="p">hentaifox</span>
+      <span class="p">toonily</span>
+      <span class="p">manhwaread</span>
+      <span class="p match">manhwabuddy</span>
+      <span class="p">manhwa18</span>
+      <span class="p">mangadistrict</span>
+      <span class="p">webtoonscan</span>
+      <span class="p locked">toomics</span>
+      <span class="p">mangafire</span>
+    </div>
+  </section>
+
+  <main class="cols">
+    <div>
+      <div class="section-head">
+        <h2>the <em>shelf</em></h2>
+        <div class="scrib">arranged by what arrived most recently</div>
+      </div>
+      <div class="lib">
+        <div class="book">
+          <div class="cov"><div class="wash w1"></div><div class="frame"></div><div class="kanji">凍 港</div><div class="seal">壱</div></div>
+          <div class="meta">
+            <div class="ttl">Frozen Hours of the Inner City</div>
+            <div class="sub"><span>47 chapters</span><b>manhwabuddy</b></div>
+          </div>
+        </div>
+        <div class="book">
+          <div class="cov"><div class="wash w2"></div><div class="frame"></div><div class="kanji">煙 橋</div><div class="seal">弐</div></div>
+          <div class="meta">
+            <div class="ttl">Smoke Above the Lacquer Bridge</div>
+            <div class="sub"><span>12 chapters</span><b>toonily</b></div>
+          </div>
+        </div>
+        <div class="book">
+          <div class="cov"><div class="wash w3"></div><div class="frame"></div><div class="kanji">獣 列</div><div class="seal">参</div></div>
+          <div class="meta">
+            <div class="ttl">A Beast Walks the Empty Train</div>
+            <div class="sub"><span>218 chapters</span><b>mangafire</b></div>
+          </div>
+        </div>
+        <div class="book">
+          <div class="cov"><div class="wash w4"></div><div class="frame"></div><div class="kanji">影 録</div><div class="seal">四</div></div>
+          <div class="meta">
+            <div class="ttl">Shadow Index, Volume Two</div>
+            <div class="sub"><span>1 volume</span><b>hitomi</b></div>
+          </div>
+        </div>
+        <div class="book">
+          <div class="cov"><div class="wash w5"></div><div class="frame"></div><div class="kanji">夜 鉄</div><div class="seal">伍</div></div>
+          <div class="meta">
+            <div class="ttl">Night-Iron, the Returning</div>
+            <div class="sub"><span>89 chapters</span><b>comix.to</b></div>
+          </div>
+        </div>
+        <div class="book">
+          <div class="cov"><div class="wash w6"></div><div class="frame"></div><div class="kanji">鎖 天</div><div class="seal">六</div></div>
+          <div class="meta">
+            <div class="ttl">Chains of the Provisional Sky</div>
+            <div class="sub"><span>33 chapters</span><b>manhwaread</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="atelier">
+      <div class="box">
+        <h3>now <em>painting</em></h3>
+        <div class="sub">two pieces in the studio</div>
+
+        <div class="work">
+          <div class="from">manhwabuddy ↘</div>
+          <div class="ttl">Forbidden Frequency</div>
+          <div class="arc">
+            <svg viewBox="0 0 60 60">
+              <circle cx="30" cy="30" r="26" fill="none" stroke="rgba(42,32,24,.1)" stroke-width="3"/>
+              <circle cx="30" cy="30" r="26" fill="none" stroke="#a04a2e" stroke-width="3" stroke-dasharray="163.36" stroke-dashoffset="109.45" stroke-linecap="round" transform="rotate(-90 30 30)"/>
+            </svg>
+            <div class="num">33<small>%</small></div>
+            <div class="deets">chapter <b>14 of 42</b><br>page <b>4 of 28</b></div>
+          </div>
+        </div>
+
+        <div class="work">
+          <div class="from">mangafire ↘</div>
+          <div class="ttl">A Beast Walks the Empty Train</div>
+          <div class="arc">
+            <svg viewBox="0 0 60 60">
+              <circle cx="30" cy="30" r="26" fill="none" stroke="rgba(42,32,24,.1)" stroke-width="3"/>
+              <circle cx="30" cy="30" r="26" fill="none" stroke="#7d9670" stroke-width="3" stroke-dasharray="163.36" stroke-dashoffset="1.63" stroke-linecap="round" transform="rotate(-90 30 30)"/>
+            </svg>
+            <div class="num">99<small>%</small></div>
+            <div class="deets">chapter <b>219 of 220</b><br><em>finalising the binding</em></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>a small <em>note</em></h3>
+        <div class="sub" style="margin-bottom:0; font-style:italic; color:var(--ink-2); font-family:'Source Serif 4'; font-size:14px; line-height:1.55;">retrying is gentle — what is on the shelf will not be re-painted; only the missing pages are fetched again.</div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <div>made privately, kept locally, written in python</div>
+    <em>nothing leaves the room.</em>
+    <div>build a91f · 2026</div>
+  </footer>
+</div>
+</body>
+</html>

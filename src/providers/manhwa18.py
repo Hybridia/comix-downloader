@@ -57,6 +57,18 @@ _OG_IMAGE_RE = re.compile(
 _META_DESC_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]+)"', re.IGNORECASE
 )
+# Series sidebar emits ``<div class="info-item"><span class="info-name">
+# Status:</span><span class="info-value"><a href="...">On going</a></span>
+# </div>``. Status text is wrapped in an ``<a>`` (the site links to a
+# filter for that status), so we extract the link text — ``"On going"``,
+# ``"Completed"``, etc. The library's normalizer handles the spacing
+# variations.
+_STATUS_RE = re.compile(
+    r'<span[^>]*class="[^"]*info-name[^"]*"[^>]*>\s*Status\s*:?\s*</span>\s*'
+    r'<span[^>]*class="[^"]*info-value[^"]*"[^>]*>\s*'
+    r'(?:<a[^>]*>)?\s*([^<]+?)\s*(?:</a>)?\s*</span>',
+    re.IGNORECASE | re.DOTALL,
+)
 # `<a href=".../<slug>/<trailing-segment>"><li><div class="chapter-name">…</div>`.
 # The trailing segment is wildly inconsistent across manga on this
 # site: ``chap-145-13`` (old fan-scan format), ``chapter-305-net-90707``
@@ -136,8 +148,8 @@ class Manhwa18Provider(Provider):
 
     def _parse_series_metadata(
         self, slug: str, html: str
-    ) -> tuple[str, Optional[str], str]:
-        """Return (title, cover_url, description)."""
+    ) -> tuple[str, Optional[str], str, Optional[str]]:
+        """Return (title, cover_url, description, status)."""
         title_m = _TITLE_RE.search(html)
         title = self._strip_title(title_m.group(1)) if title_m else slug
 
@@ -151,7 +163,12 @@ class Manhwa18Provider(Provider):
         if desc_m:
             description = unescape(desc_m.group(1)).strip()
 
-        return title, cover, description
+        status: Optional[str] = None
+        status_m = _STATUS_RE.search(html)
+        if status_m:
+            status = unescape(status_m.group(1)).strip() or None
+
+        return title, cover, description, status
 
     def _parse_chapters(self, html: str) -> list[tuple[str, str, str]]:
         """
@@ -215,7 +232,7 @@ class Manhwa18Provider(Provider):
 
     def get_manga_info(self, code: str) -> Optional[MangaInfo]:
         html = self._fetch_html(f"/manga/{code}")
-        title, cover, description = self._parse_series_metadata(code, html)
+        title, cover, description, status = self._parse_series_metadata(code, html)
         chapters = self._parse_chapters(html)
         latest = chapters[0][1] if chapters else None
 
@@ -226,7 +243,7 @@ class Manhwa18Provider(Provider):
             manga_type="manhwa",
             poster_url=cover,
             original_language="ko",
-            status=None,
+            status=status,
             latest_chapter=latest,
             is_nsfw=True,  # site explicitly hosts 18+ content
             description=description,

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>03 / EDITORIAL — comix</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:#f7f1e6;
+  --paper-2:#efe7d6;
+  --ink:#181314;
+  --ink-2:#3a2f2f;
+  --rule:#1a1418;
+  --navy:#1a2944;
+  --red:#a8281a;
+  --gold:#7c6535;
+  --dim:#7a6a5e;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--paper); color:var(--ink); font-family:'EB Garamond', Georgia, serif; min-height:100vh; }
+body {
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(168,40,26,.02), transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(26,41,68,.025), transparent 50%);
+}
+
+.paper { max-width:1360px; margin:0 auto; padding:32px 56px 80px; position:relative; }
+.paper::before { content:''; position:absolute; top:0; bottom:0; left:50%; width:1px; background:var(--rule); opacity:.18; pointer-events:none; display:none; }
+
+/* MASTHEAD */
+.mast { text-align:center; padding-bottom:18px; border-bottom:double 5px var(--rule); position:relative; }
+.mast .above { display:flex; justify-content:space-between; font-family:'Inter',sans-serif; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); padding-bottom:18px; }
+.mast .above b { color:var(--ink); font-weight:500; }
+.mast h1 { font-family:'Playfair Display',serif; font-weight:900; font-size:120px; line-height:1; letter-spacing:-.04em; margin:0; }
+.mast h1 .amp { color:var(--red); font-style:italic; font-weight:400; }
+.mast .tag { font-style:italic; font-family:'EB Garamond',serif; font-size:18px; color:var(--ink-2); margin-top:8px; }
+.mast .below { display:flex; justify-content:center; gap:36px; font-family:'Inter',sans-serif; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); padding-top:14px; }
+.mast .below span { position:relative; }
+.mast .below span + span::before { content:'·'; position:absolute; left:-22px; color:var(--gold); }
+
+/* NAV BAR */
+.nav { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid var(--rule); font-family:'Inter',sans-serif; font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+.nav .links { display:flex; gap:36px; }
+.nav .links a { color:var(--ink); text-decoration:none; padding:6px 0; position:relative; cursor:pointer; }
+.nav .links a.on { color:var(--red); font-weight:600; }
+.nav .links a.on::after { content:''; position:absolute; bottom:-15px; left:0; right:0; height:3px; background:var(--red); }
+.nav .right { color:var(--dim); }
+.nav .right b { color:var(--ink); font-weight:500; }
+
+/* HEADLINE INPUT */
+.headline-input { padding:28px 0 18px; border-bottom:1px solid var(--rule); display:grid; grid-template-columns: 100px 1fr 180px; gap:24px; align-items:end; }
+.headline-input .lbl { font-family:'Inter',sans-serif; font-size:9px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); padding-bottom:10px; }
+.headline-input input { background:transparent; border:none; border-bottom:1px solid var(--rule); outline:none; font-family:'Playfair Display',serif; font-size:30px; padding:6px 0; color:var(--ink); font-weight:400; font-style:italic; }
+.headline-input button { background:var(--ink); color:var(--paper); border:none; padding:14px 22px; font-family:'Inter',sans-serif; font-size:10px; letter-spacing:3px; text-transform:uppercase; cursor:pointer; }
+.headline-input button:hover { background:var(--red); }
+
+.byline { font-family:'EB Garamond',serif; font-size:14px; padding:14px 0 18px; color:var(--dim); font-style:italic; border-bottom:1px solid var(--rule); }
+.byline b { color:var(--ink); font-style:normal; font-weight:500; }
+.byline .green { color:var(--gold); font-weight:500; font-style:normal; }
+
+/* TWO COLUMN BODY */
+.cols { display:grid; grid-template-columns: 1fr 320px; gap:48px; margin-top:36px; }
+
+.section-head { display:flex; align-items:baseline; justify-content:space-between; padding-bottom:8px; border-bottom:1px solid var(--rule); margin-bottom:24px; }
+.section-head h2 { font-family:'Playfair Display',serif; font-size:42px; font-weight:700; letter-spacing:-.02em; }
+.section-head h2 em { font-style:italic; font-weight:400; color:var(--red); }
+.section-head .meta { font-family:'Inter',sans-serif; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+
+/* LIBRARY: FEATURED + INDEX */
+.featured { display:grid; grid-template-columns: 280px 1fr; gap:32px; padding-bottom:32px; border-bottom:1px solid var(--rule); }
+.featured .cov { aspect-ratio: 3/4; position:relative; overflow:hidden; box-shadow:0 1px 0 var(--rule), 8px 8px 0 rgba(24,19,20,.06); }
+.featured .cov .grad { position:absolute; inset:0; background:
+  radial-gradient(ellipse at 30% 30%, #5e3a2a, transparent 70%),
+  radial-gradient(ellipse at 70% 60%, #2c4a5e, transparent 70%),
+  #1a2030; }
+.featured .cov .crest { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'Playfair Display',serif; color:rgba(247,241,230,.85); font-size:88px; font-style:italic; font-weight:400; }
+.featured .cov .strip { position:absolute; bottom:0; left:0; right:0; padding:10px 14px; background:rgba(24,19,20,.85); color:var(--paper); font-family:'Inter',sans-serif; font-size:9px; letter-spacing:2px; text-transform:uppercase; display:flex; justify-content:space-between; }
+.featured .text .kicker { font-family:'Inter',sans-serif; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--red); font-weight:600; margin-bottom:8px; }
+.featured .text h3 { font-family:'Playfair Display',serif; font-size:48px; font-weight:700; line-height:1.05; letter-spacing:-.02em; margin-bottom:14px; }
+.featured .text h3 em { font-style:italic; font-weight:400; }
+.featured .text .lede { font-size:17px; line-height:1.55; color:var(--ink-2); margin-bottom:18px; }
+.featured .text .lede::first-letter { font-family:'Playfair Display',serif; font-size:64px; font-weight:900; float:left; line-height:.8; margin:6px 8px 0 0; color:var(--red); }
+.featured .text .stats { display:flex; gap:32px; padding-top:14px; border-top:1px solid var(--rule); font-family:'Inter',sans-serif; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.featured .text .stats div b { display:block; font-family:'Playfair Display',serif; font-size:28px; color:var(--ink); font-weight:700; letter-spacing:-.02em; text-transform:none; margin-bottom:2px; }
+
+/* CATALOGUE INDEX */
+.index { padding-top:28px; }
+.index h3 { font-family:'Playfair Display',serif; font-size:18px; font-style:italic; font-weight:400; color:var(--ink-2); margin-bottom:16px; }
+.index .items { columns: 2; column-gap: 48px; column-rule: 1px solid var(--rule); }
+.item { break-inside:avoid; padding:14px 0; border-bottom:1px dotted rgba(26,20,24,.25); display:grid; grid-template-columns: 24px 1fr 60px; gap:8px; align-items:baseline; }
+.item .n { font-family:'Playfair Display',serif; font-style:italic; font-size:14px; color:var(--gold); font-weight:400; }
+.item .t { font-size:16px; font-weight:500; line-height:1.3; }
+.item .t small { display:block; font-family:'Inter',sans-serif; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); font-weight:400; margin-top:3px; }
+.item .ch { text-align:right; font-family:'Inter',sans-serif; font-size:10px; letter-spacing:1px; color:var(--ink); font-variant-numeric:tabular-nums; }
+.item .ch b { display:block; font-family:'Playfair Display',serif; font-size:22px; font-weight:700; color:var(--ink); letter-spacing:-.02em; }
+
+/* SIDEBAR — IN PROGRESS */
+aside .module { margin-bottom:36px; padding-bottom:28px; border-bottom:1px solid var(--rule); }
+aside .module:last-child { border-bottom:none; }
+aside h3 { font-family:'Playfair Display',serif; font-size:26px; font-weight:700; margin-bottom:4px; letter-spacing:-.01em; }
+aside h3 em { font-style:italic; font-weight:400; color:var(--red); }
+aside .sub { font-family:'Inter',sans-serif; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); margin-bottom:20px; }
+.dispatch { padding:16px 0; border-top:1px solid var(--rule); }
+.dispatch:first-of-type { border-top:none; padding-top:4px; }
+.dispatch .from { font-family:'Inter',sans-serif; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--red); font-weight:600; margin-bottom:4px; }
+.dispatch .dt { font-family:'Playfair Display',serif; font-size:18px; line-height:1.2; font-weight:500; margin-bottom:8px; letter-spacing:-.01em; }
+.dispatch .dt em { font-style:italic; font-weight:400; }
+.bar-wrap { display:flex; align-items:center; gap:10px; margin-top:10px; }
+.bar { flex:1; height:1px; background:var(--rule); position:relative; }
+.bar::after { content:''; position:absolute; left:0; top:-2px; bottom:-2px; background:var(--ink); }
+.bar.b1::after { width:33%; }
+.bar.b2::after { width:99%; background:var(--gold); }
+.bar-wrap .p { font-family:'Playfair Display',serif; font-size:20px; font-weight:700; letter-spacing:-.02em; color:var(--ink); font-variant-numeric:tabular-nums; }
+.dispatch .meta { font-family:'Inter',sans-serif; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); margin-top:10px; display:flex; justify-content:space-between; }
+
+/* PROVIDER LIST */
+.providers { display:grid; grid-template-columns: 1fr 1fr; gap:6px 16px; }
+.prov { display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; border-bottom:1px dotted rgba(26,20,24,.18); font-family:'Inter',sans-serif; font-size:11px; }
+.prov .nm { color:var(--ink); }
+.prov.match .nm { color:var(--red); font-weight:600; }
+.prov.locked .nm::before { content:'◆ '; color:var(--gold); }
+.prov .ind { font-size:8px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.prov.match .ind { color:var(--red); font-weight:600; }
+
+.foot { margin-top:60px; padding-top:18px; border-top:1px solid var(--rule); display:flex; justify-content:space-between; font-family:'Inter',sans-serif; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.foot b { color:var(--ink); font-weight:500; }
+.foot em { color:var(--red); font-style:italic; font-family:'EB Garamond',serif; font-weight:400; text-transform:none; letter-spacing:0; }
+</style>
+</head>
+<body>
+<div class="paper">
+  <header class="mast">
+    <div class="above">
+      <div>VOL. CCLXIV · NO. <b>2.6.5</b></div>
+      <div>FRIDAY · <b>15 MAY 2026</b></div>
+      <div>SINGLE COPY · <b>FREE &amp; OPEN</b></div>
+    </div>
+    <h1>The Comix <span class="amp">&amp;</span> Reader</h1>
+    <div class="tag">"A periodical for the diligent collector of bound &amp; serial things."</div>
+    <div class="below">
+      <span>EST. 2024</span>
+      <span>FOURTEEN PROVIDERS</span>
+      <span>NO ADVERTISEMENTS</span>
+      <span>BOUND IN .CBZ &amp; .PDF</span>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <div class="links">
+      <a>Browse</a>
+      <a class="on">Library</a>
+      <a>Dispatches</a>
+      <a>Settings</a>
+    </div>
+    <div class="right">PRINTED ON DISK · <b>18.4 GB</b> · <b>47</b> VOLUMES</div>
+  </nav>
+
+  <section class="headline-input">
+    <div class="lbl">Subscribe to →</div>
+    <input value="https://manhwabuddy.com/manhwa/forbidden-frequency/">
+    <button>Fetch ⏎</button>
+  </section>
+
+  <p class="byline">Detected: <b>manhwabuddy.com</b> — recognised provider · <span class="green">ready to retrieve</span>. Click <em>Fetch</em> to enumerate chapters.</p>
+
+  <main class="cols">
+    <div>
+      <div class="section-head">
+        <h2>The <em>Library</em></h2>
+        <div class="meta">SORTED BY RECENT ACQUISITION</div>
+      </div>
+
+      <article class="featured">
+        <div class="cov">
+          <div class="grad"></div>
+          <div class="crest">N<sup>°</sup></div>
+          <div class="strip"><span>FEATURED · MAY '26</span><span>89 CHAPTERS</span></div>
+        </div>
+        <div class="text">
+          <div class="kicker">Lately Acquired · Comix.to</div>
+          <h3>Night-Iron, <em>the Returning</em></h3>
+          <p class="lede">A serialised gothic from the comix.to weekly, retrieved in full and bound into eighty-nine numbered chapters across 1.09 GB. Its initial run completed last winter; the present library copy includes scanlator credits and a complete contents index.</p>
+          <div class="stats">
+            <div><b>89</b>Chapters</div>
+            <div><b>1.09<small style="font-size:14px;">GB</small></b>On disk</div>
+            <div><b>CBZ</b>Format</div>
+            <div><b>5d</b>Ago</div>
+          </div>
+        </div>
+      </article>
+
+      <div class="index">
+        <h3>An <em>index</em> of further acquisitions</h3>
+        <div class="items">
+          <div class="item">
+            <div class="n">i.</div>
+            <div class="t">Frozen Hours of the Inner City<small>Manhwabuddy · 14h ago</small></div>
+            <div class="ch"><b>47</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">ii.</div>
+            <div class="t">Smoke Above the Lacquer Bridge<small>Toonily · 2d ago</small></div>
+            <div class="ch"><b>12</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">iii.</div>
+            <div class="t">A Beast Walks the Empty Train<small>Mangafire · 3d ago</small></div>
+            <div class="ch"><b>218</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">iv.</div>
+            <div class="t">Shadow Index, Volume Two<small>Hitomi · 4d ago</small></div>
+            <div class="ch"><b>1</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">v.</div>
+            <div class="t">Chains of the Provisional Sky<small>Manhwaread · 1w ago</small></div>
+            <div class="ch"><b>33</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">vi.</div>
+            <div class="t">A Quiet Catalogue of Hours<small>Manhwa18 · 1w ago</small></div>
+            <div class="ch"><b>22</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">vii.</div>
+            <div class="t">Letters From the Last Bridge<small>Mangadistrict · 2w ago</small></div>
+            <div class="ch"><b>40</b>ch</div>
+          </div>
+          <div class="item">
+            <div class="n">viii.</div>
+            <div class="t">The Provisional Aviary<small>Webtoonscan · 3w ago</small></div>
+            <div class="ch"><b>17</b>ch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <div class="module">
+        <h3>Now <em>retrieving</em></h3>
+        <div class="sub">Two dispatches in progress</div>
+
+        <div class="dispatch">
+          <div class="from">From Manhwabuddy</div>
+          <div class="dt">Forbidden <em>Frequency</em></div>
+          <div class="bar-wrap"><div class="bar b1"></div><div class="p">33<small style="font-size:10px;color:var(--dim);">%</small></div></div>
+          <div class="meta"><span>Ch. 14 / 42</span><span>Pg. 04 / 28</span></div>
+        </div>
+
+        <div class="dispatch">
+          <div class="from">From Mangafire</div>
+          <div class="dt">A Beast Walks <em>the Empty Train</em></div>
+          <div class="bar-wrap"><div class="bar b2"></div><div class="p">99<small style="font-size:10px;color:var(--dim);">%</small></div></div>
+          <div class="meta"><span>Ch. 219 / 220</span><span>Finalising</span></div>
+        </div>
+      </div>
+
+      <div class="module">
+        <h3>Known <em>provenances</em></h3>
+        <div class="sub">14 supported publishers</div>
+        <div class="providers">
+          <div class="prov"><span class="nm">comix.to</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">nhentai.to</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">hitomi.la</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">hentaifc</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">hentairead</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">hentaifox</span><span class="ind">open</span></div>
+          <div class="prov match"><span class="nm">manhwabuddy</span><span class="ind">matched ✓</span></div>
+          <div class="prov"><span class="nm">manhwaread</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">manhwa18</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">toonily</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">mangadistrict</span><span class="ind">open</span></div>
+          <div class="prov"><span class="nm">webtoonscan</span><span class="ind">flare</span></div>
+          <div class="prov"><span class="nm">mangafire</span><span class="ind">play</span></div>
+          <div class="prov locked"><span class="nm">toomics</span><span class="ind">paid</span></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <div>COMIX &amp; READER · A SINGLE-AUTHOR PERIODICAL</div>
+    <em>"Printed in Python; bound on disk."</em>
+    <div>NO TELEMETRY · <b>PRIVATELY HELD</b></div>
+  </footer>
+</div>
+</body>
+</html>

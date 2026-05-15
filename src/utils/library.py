@@ -52,6 +52,7 @@ Design notes:
 
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +76,79 @@ _singleton: Optional["LibraryManager"] = None
 def _now_iso() -> str:
     """Timezone-aware UTC ISO-8601 timestamp, no microseconds."""
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+# Provider `status` strings vary ("Completed", "complete", "End",
+# "Ongoing", "Publishing", …). Normalise to a fixed vocabulary so the
+# GUI can match against stable values. Empty string ⇒ unknown.
+_STATUS_COMPLETED = {
+    "completed", "complete", "completo", "completa",
+    "finished", "ended", "end", "終了", "完結",
+}
+_STATUS_CANCELLED = {
+    "cancelled", "canceled", "dropped", "discontinued", "abandoned",
+}
+_STATUS_HIATUS = {
+    "hiatus", "on hiatus", "paused", "on hold",
+}
+_STATUS_ONGOING = {
+    "ongoing", "publishing", "serializing", "serialising",
+    "in progress", "running", "active", "連載中",
+    "releasing",   # mangafire's term
+    "current",     # webtoonscan / some Madara sites
+}
+
+
+def normalize_status(value: Optional[str]) -> str:
+    """
+    Map a raw provider status string to one of:
+    "completed" / "cancelled" / "hiatus" / "ongoing" / "" (unknown).
+
+    For the skip-on-Update-All purpose, "completed" and "cancelled"
+    both mean "won't get new chapters from the site".
+
+    Whitespace and hyphens are collapsed before matching so variants
+    like "on going" / "on-going" / "on  going" all resolve the same
+    as "ongoing". Real-world inputs we've seen: "Completed",
+    "complete", "OnGoing", "On going", "On Going", "完結", "Hiatus".
+    """
+    if not value:
+        return ""
+    v = str(value).strip().lower()
+    if not v:
+        return ""
+    # Collapse internal whitespace + hyphens so "on going" / "on-going"
+    # become "ongoing". We test both the squashed form AND the original
+    # so multi-word categories like "in progress" still match.
+    squashed = re.sub(r"[\s\-_]+", "", v)
+    for variant in (v, squashed):
+        if variant in _STATUS_COMPLETED:
+            return "completed"
+        if variant in _STATUS_CANCELLED:
+            return "cancelled"
+        if variant in _STATUS_HIATUS:
+            return "hiatus"
+        if variant in _STATUS_ONGOING:
+            return "ongoing"
+    # Fallback substring sniff for messy values ("Status: Completed!").
+    for token in _STATUS_COMPLETED:
+        if token in v or token in squashed:
+            return "completed"
+    for token in _STATUS_CANCELLED:
+        if token in v or token in squashed:
+            return "cancelled"
+    for token in _STATUS_HIATUS:
+        if token in v or token in squashed:
+            return "hiatus"
+    for token in _STATUS_ONGOING:
+        if token in v or token in squashed:
+            return "ongoing"
+    return ""
+
+
+def is_finished_status(status: str) -> bool:
+    """True if the status means 'no more new chapters expected'."""
+    return status in ("completed", "cancelled")
 
 
 def _normalize_url(url: str) -> str:
@@ -170,9 +244,16 @@ class LibraryManager:
         of metadata (title, poster, tags) without touching the
         ``chapters`` dict. Called once at the start of every download
         run so an entry exists even if every chapter ends up failing.
+
+        ``status`` is auto-tracked from ``MangaInfo.status`` and
+        normalised. A user "Mark as completed" toggle on the GUI sets
+        ``status_manual = True`` — when that flag is set, the auto
+        value is recorded under ``status_auto`` for visibility but the
+        effective ``status`` is left alone.
         """
         with _lock:
             now = _now_iso()
+            auto_status = normalize_status(getattr(manga, "status", None))
             entry = {
                 "source": getattr(manga, "source", "") or "",
                 "source_url": _normalize_url(getattr(manga, "source_url", "") or ""),
@@ -193,6 +274,7 @@ class LibraryManager:
                     else getattr(manga, "title", "Unknown")
                 ),
                 "last_updated_at": now,
+                "status_auto": auto_status,
             }
 
             i = self._index(entry["source_url"]) if entry["source_url"] else -1
@@ -202,15 +284,59 @@ class LibraryManager:
                 entry["added_at"] = existing.get("added_at", now)
                 entry["last_checked_at"] = existing.get("last_checked_at")
                 entry["chapters"] = existing.get("chapters", {})
+                # Status precedence: a manual override (set via the
+                # Library card's status toggle) wins; otherwise we use
+                # whatever the provider just reported. This is also why
+                # status_auto is stored separately — so the GUI can
+                # show "you've marked this Completed; site says Ongoing".
+                if existing.get("status_manual"):
+                    entry["status"] = existing.get("status", "")
+                    entry["status_manual"] = True
+                else:
+                    entry["status"] = auto_status
+                    entry["status_manual"] = False
                 self._data["entries"][i] = entry
             else:
                 entry["added_at"] = now
                 entry["last_checked_at"] = None
                 entry["chapters"] = {}
+                entry["status"] = auto_status
+                entry["status_manual"] = False
                 self._data["entries"].append(entry)
 
             self._save()
             return dict(entry)
+
+    def set_status(
+        self, source_url: str, status: str, manual: bool = True,
+    ) -> bool:
+        """
+        Set an entry's status. With ``manual=True`` (the default)
+        the auto-tracker won't overwrite this on the next probe; pass
+        ``manual=False`` to clear an override.
+
+        Clearing an override (``status=""``, ``manual=False``) restores
+        the last-known auto value from ``status_auto`` — otherwise the
+        card would show "?" until the next probe re-syncs from the
+        provider, which is the wrong default for a "Clear override"
+        button.
+        """
+        normalized = normalize_status(status) if status else ""
+        with _lock:
+            i = self._index(source_url)
+            if i < 0:
+                return False
+            entry = self._data["entries"][i]
+            if not manual and not normalized:
+                # "Use site status" — fall back to whatever the last
+                # probe recorded. Empty if the provider doesn't expose
+                # status (in which case the badge correctly shows "?").
+                entry["status"] = entry.get("status_auto", "") or ""
+            else:
+                entry["status"] = normalized
+            entry["status_manual"] = bool(manual)
+            self._save()
+            return True
 
     def record_chapter(
         self,
@@ -244,13 +370,29 @@ class LibraryManager:
             entry["last_updated_at"] = _now_iso()
             self._save()
 
-    def mark_checked(self, source_url: str) -> None:
-        """Stamp ``last_checked_at`` (called after an Update probe)."""
+    def mark_checked(
+        self, source_url: str, manga_status: Optional[str] = None,
+    ) -> None:
+        """
+        Stamp ``last_checked_at`` (called after an Update probe).
+
+        If ``manga_status`` is provided, also refresh ``status_auto``
+        from the live provider value. The effective ``status`` is
+        re-synced only when the user hasn't set a manual override —
+        a user "Mark as completed" should survive a routine probe
+        that disagrees.
+        """
         with _lock:
             i = self._index(source_url)
             if i < 0:
                 return
-            self._data["entries"][i]["last_checked_at"] = _now_iso()
+            entry = self._data["entries"][i]
+            entry["last_checked_at"] = _now_iso()
+            if manga_status is not None:
+                normalized = normalize_status(manga_status)
+                entry["status_auto"] = normalized
+                if not entry.get("status_manual"):
+                    entry["status"] = normalized
             self._save()
 
     def set_output_format(self, source_url: str, fmt: str) -> bool:

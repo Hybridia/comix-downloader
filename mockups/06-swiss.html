@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>06 / SWISS GRID — comix</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;700;900&family=Archivo+Narrow:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:#ffffff;
+  --paper-2:#f4f4f2;
+  --paper-3:#e8e6e0;
+  --ink:#0a0a0a;
+  --ink-2:#3a3a3a;
+  --red:#ff2d2d;
+  --dim:#8a8a86;
+  --line:#0a0a0a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--paper); color:var(--ink); font-family:'Archivo', system-ui, sans-serif; min-height:100vh; font-feature-settings:'tnum','ss01'; }
+
+.app { max-width:1440px; margin:0 auto; padding:0; }
+
+/* HEADER GRID */
+.head { display:grid; grid-template-columns: repeat(12, 1fr); border-bottom:2px solid var(--line); }
+.head .brand { grid-column: 1/4; padding:36px 24px; border-right:1px solid var(--line); display:flex; flex-direction:column; justify-content:flex-end; }
+.head .brand .small { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); margin-bottom:4px; }
+.head .brand h1 { font-family:'Archivo'; font-weight:900; font-size:64px; line-height:.9; letter-spacing:-.06em; }
+.head .brand h1 .dot { color:var(--red); }
+.head .strap { grid-column: 4/9; padding:36px 32px; border-right:1px solid var(--line); display:flex; flex-direction:column; justify-content:flex-end; }
+.head .strap .num { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--red); font-weight:700; margin-bottom:8px; }
+.head .strap p { font-family:'Fraunces', serif; font-weight:400; font-size:24px; line-height:1.2; letter-spacing:-.01em; }
+.head .strap p em { font-style:italic; }
+.head .meta { grid-column: 9/13; padding:36px 24px; display:grid; grid-template-columns: 1fr 1fr; gap:2px 16px; align-content:end; }
+.head .meta .k { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.head .meta .v { font-family:'Archivo'; font-size:22px; font-weight:500; letter-spacing:-.02em; line-height:1; }
+.head .meta .v b { color:var(--red); }
+.head .meta .v small { font-size:11px; color:var(--dim); font-weight:400; letter-spacing:0; }
+
+/* NAV */
+.nav { display:grid; grid-template-columns: repeat(12, 1fr); border-bottom:1px solid var(--line); }
+.nav .b { padding:18px 24px; border-right:1px solid var(--line); font-family:'Archivo Narrow'; font-size:11px; letter-spacing:3px; text-transform:uppercase; font-weight:700; color:var(--ink); cursor:pointer; }
+.nav .b.on { background:var(--ink); color:var(--paper); }
+.nav .b:hover:not(.on) { background:var(--paper-2); }
+.nav .b1 { grid-column: 1/3; }
+.nav .b2 { grid-column: 3/5; }
+.nav .b3 { grid-column: 5/7; }
+.nav .b4 { grid-column: 7/9; }
+.nav .info { grid-column: 9/13; padding:18px 24px; font-family:'Archivo Narrow'; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); text-align:right; }
+.nav .info b { color:var(--ink); }
+
+/* COMMAND */
+.cmd-block { display:grid; grid-template-columns: repeat(12, 1fr); border-bottom:2px solid var(--line); }
+.cmd-block .l { grid-column: 1/3; padding:24px; border-right:1px solid var(--line); display:flex; flex-direction:column; justify-content:center; }
+.cmd-block .l .lbl { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--dim); }
+.cmd-block .l .n { font-family:'Archivo'; font-size:84px; font-weight:900; line-height:.9; letter-spacing:-.06em; color:var(--red); margin-top:4px; }
+.cmd-block .input { grid-column: 3/10; padding:0; border-right:1px solid var(--line); display:flex; align-items:stretch; }
+.cmd-block input { background:transparent; border:none; outline:none; padding:28px 24px; font-family:'Archivo', sans-serif; font-size:28px; color:var(--ink); flex:1; letter-spacing:-.02em; font-weight:400; }
+.cmd-block .go { grid-column: 10/13; background:var(--red); color:var(--paper); border:none; font-family:'Archivo Narrow'; font-size:14px; letter-spacing:4px; text-transform:uppercase; font-weight:700; cursor:pointer; padding:24px; }
+.cmd-block .go:hover { background:var(--ink); }
+.cmd-block .go span { display:block; font-size:48px; font-family:'Archivo'; font-weight:900; letter-spacing:-.04em; line-height:1; margin-top:4px; text-transform:none; }
+
+/* PROVIDERS */
+.providers { display:grid; grid-template-columns: repeat(7, 1fr); border-bottom:2px solid var(--line); }
+.providers .p { padding:14px 18px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; }
+.providers .p:nth-child(7n) { border-right:none; }
+.providers .p:nth-child(n+8) { border-bottom:none; }
+.providers .p .nm { font-weight:700; color:var(--ink); display:block; margin-bottom:2px; }
+.providers .p .st { color:var(--dim); font-size:9px; }
+.providers .p.match { background:var(--red); color:var(--paper); }
+.providers .p.match .nm { color:var(--paper); }
+.providers .p.match .st { color:var(--paper); }
+.providers .p.locked { background:var(--paper-2); }
+.providers .p.locked .nm::after { content:' ◆'; color:var(--red); }
+
+/* BODY GRID */
+.body { display:grid; grid-template-columns: repeat(12, 1fr); }
+
+/* LIBRARY */
+.lib-wrap { grid-column: 1/9; border-right:1px solid var(--line); }
+.lib-head { padding:32px 24px; border-bottom:2px solid var(--line); display:flex; justify-content:space-between; align-items:flex-end; }
+.lib-head h2 { font-family:'Archivo'; font-size:64px; font-weight:900; letter-spacing:-.04em; line-height:.9; }
+.lib-head h2 em { font-style:italic; font-weight:400; font-family:'Fraunces'; color:var(--red); }
+.lib-head .right { text-align:right; font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); line-height:1.8; }
+.lib-head .right b { color:var(--ink); font-weight:700; }
+
+.lib-grid { display:grid; grid-template-columns: repeat(2, 1fr); }
+.entry { padding:28px 24px; border-bottom:1px solid var(--line); border-right:1px solid var(--line); display:grid; grid-template-columns: 88px 1fr; gap:20px; cursor:pointer; transition: background .15s; }
+.entry:nth-child(2n) { border-right:none; }
+.entry:hover { background:var(--paper-2); }
+.entry .cov { aspect-ratio: 3/4; position:relative; overflow:hidden; }
+.entry .cov .fill { position:absolute; inset:0; }
+.entry .cov .grid-on { position:absolute; inset:0; background-image:
+  linear-gradient(to right, rgba(255,255,255,.16) 1px, transparent 1px),
+  linear-gradient(rgba(255,255,255,.16) 1px, transparent 1px);
+  background-size: 12px 12px; }
+.entry .cov .n { position:absolute; bottom:6px; left:8px; font-family:'Archivo'; font-size:22px; font-weight:900; color:var(--paper); letter-spacing:-.04em; line-height:1; }
+.entry .info { display:flex; flex-direction:column; justify-content:space-between; }
+.entry .info .num { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.entry .info .num b { color:var(--red); font-weight:700; }
+.entry .info h3 { font-family:'Archivo'; font-size:24px; font-weight:700; letter-spacing:-.02em; line-height:1.05; margin:6px 0 14px; }
+.entry .info .row { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; padding-top:14px; border-top:1px solid var(--line); }
+.entry .info .row > div .k { font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); display:block; margin-bottom:2px; }
+.entry .info .row > div .v { font-family:'Archivo'; font-size:14px; font-weight:500; }
+.entry .info .row > div .v.r { color:var(--red); font-weight:700; }
+
+.f1 { background:#0a0a0a; }
+.f2 { background:#ff2d2d; }
+.f3 { background:#1547d8; }
+.f4 { background:#0a0a0a; }
+.f5 { background:#ff2d2d; }
+.f6 { background:#0a0a0a; }
+
+/* SIDEBAR */
+.side { grid-column: 9/13; }
+.side .panel { padding:32px 24px; border-bottom:1px solid var(--line); }
+.side .panel-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:24px; }
+.side .panel-head h3 { font-family:'Archivo'; font-size:36px; font-weight:900; letter-spacing:-.04em; line-height:1; }
+.side .panel-head h3 em { color:var(--red); font-style:italic; font-weight:400; font-family:'Fraunces'; }
+.side .panel-head .ct { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+
+.task { padding:20px 0; border-top:1px solid var(--line); }
+.task:first-of-type { border-top:none; padding-top:0; }
+.task .from { font-family:'Archivo Narrow'; font-size:9px; letter-spacing:3px; text-transform:uppercase; color:var(--red); font-weight:700; margin-bottom:4px; }
+.task h4 { font-family:'Archivo'; font-size:20px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin-bottom:18px; }
+.task .grid-stats { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:18px; }
+.task .grid-stats > div { border-left:2px solid var(--ink); padding-left:10px; }
+.task .grid-stats > div .k { font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); display:block; }
+.task .grid-stats > div .v { font-family:'Archivo'; font-size:24px; font-weight:900; letter-spacing:-.03em; line-height:1; margin-top:4px; }
+.task .grid-stats > div .v.r { color:var(--red); }
+.bar { height:6px; background:var(--paper-3); position:relative; overflow:hidden; }
+.bar .fill { height:100%; background:var(--ink); }
+.bar .fill.r { background:var(--red); }
+.task .pct-row { display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
+.task .pct-row .pct { font-family:'Archivo'; font-size:32px; font-weight:900; letter-spacing:-.04em; line-height:1; }
+.task .pct-row .pct.r { color:var(--red); }
+.task .pct-row .rt { font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); text-align:right; line-height:1.5; }
+.task .pct-row .rt b { color:var(--ink); font-weight:700; }
+
+.foot { display:grid; grid-template-columns: repeat(12, 1fr); border-top:2px solid var(--line); }
+.foot > div { padding:18px 24px; border-right:1px solid var(--line); font-family:'Archivo Narrow'; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+.foot > div:last-child { border-right:none; }
+.foot b { color:var(--ink); font-weight:700; }
+.foot .c1 { grid-column: 1/4; }
+.foot .c2 { grid-column: 4/8; }
+.foot .c3 { grid-column: 8/13; text-align:right; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="head">
+    <div class="brand">
+      <div class="small">A FILE-FIRST DOWNLOADER</div>
+      <h1>comix<span class="dot">.</span></h1>
+    </div>
+    <div class="strap">
+      <div class="num">№ 047 / VOL. 2.6.5</div>
+      <p>Fourteen <em>sources</em>, three formats, zero accounts. A precise instrument for the <em>diligent collector</em>.</p>
+    </div>
+    <div class="meta">
+      <span class="k">Titles</span>
+      <span class="k">Chapters</span>
+      <span class="v">47</span>
+      <span class="v">2,184</span>
+      <span class="k">On Disk</span>
+      <span class="k">Build</span>
+      <span class="v"><b>18.4</b><small> GB</small></span>
+      <span class="v">a91f</span>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <div class="b b1">Browse</div>
+    <div class="b b2 on">Library</div>
+    <div class="b b3">Queue</div>
+    <div class="b b4">Settings</div>
+    <div class="info">15 MAY 2026 · 23:41 · CONN <b>STABLE</b> · RATE <b>4.0 R/S</b></div>
+  </nav>
+
+  <section class="cmd-block">
+    <div class="l">
+      <div class="lbl">PASTE</div>
+      <div class="n">→</div>
+    </div>
+    <div class="input">
+      <input value="https://mangafire.to/manga/oushuu-tairiku-no-tabi.l3k53">
+    </div>
+    <button class="go">FETCH<span>↵</span></button>
+  </section>
+
+  <section class="providers">
+    <div class="p"><span class="nm">comix.to</span><span class="st">ready · play</span></div>
+    <div class="p"><span class="nm">nhentai.to</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">hitomi.la</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">hentaifc</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">hentairead</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">hentaifox</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">toonily</span><span class="st">ready · CF</span></div>
+    <div class="p"><span class="nm">manhwaread</span><span class="st">ready</span></div>
+    <div class="p"><span class="nm">manhwabuddy</span><span class="st">ready · CF</span></div>
+    <div class="p"><span class="nm">manhwa18</span><span class="st">ready · CF</span></div>
+    <div class="p"><span class="nm">mangadistrict</span><span class="st">ready · CF</span></div>
+    <div class="p"><span class="nm">webtoonscan</span><span class="st">ready · FLARE</span></div>
+    <div class="p match"><span class="nm">mangafire</span><span class="st">MATCH · play</span></div>
+    <div class="p locked"><span class="nm">toomics</span><span class="st">paid · cookie</span></div>
+  </section>
+
+  <section class="body">
+    <div class="lib-wrap">
+      <div class="lib-head">
+        <h2>Library<em>.</em></h2>
+        <div class="right">
+          47 TITLES · 2,184 CHAPTERS<br>
+          SORT <b>RECENT</b> · FILTER <b>NONE</b>
+        </div>
+      </div>
+      <div class="lib-grid">
+        <div class="entry">
+          <div class="cov"><div class="fill f1"></div><div class="grid-on"></div><div class="n">01</div></div>
+          <div class="info">
+            <div class="num">№ 001 · ACQUIRED <b>14h ago</b></div>
+            <h3>Frozen Hours of the Inner City</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">manhwabuddy</span></div>
+              <div><span class="k">Chapters</span><span class="v r">47</span></div>
+              <div><span class="k">Format</span><span class="v">CBZ</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="cov"><div class="fill f2"></div><div class="grid-on"></div><div class="n">02</div></div>
+          <div class="info">
+            <div class="num">№ 002 · ACQUIRED <b>2d ago</b></div>
+            <h3>Smoke Above the Lacquer Bridge</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">toonily</span></div>
+              <div><span class="k">Chapters</span><span class="v r">12</span></div>
+              <div><span class="k">Format</span><span class="v">PDF</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="cov"><div class="fill f3"></div><div class="grid-on"></div><div class="n">03</div></div>
+          <div class="info">
+            <div class="num">№ 003 · ACQUIRED <b>3d ago</b></div>
+            <h3>A Beast Walks the Empty Train</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">mangafire</span></div>
+              <div><span class="k">Chapters</span><span class="v r">218</span></div>
+              <div><span class="k">Format</span><span class="v">CBZ</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="cov"><div class="fill f4"></div><div class="grid-on"></div><div class="n">04</div></div>
+          <div class="info">
+            <div class="num">№ 004 · ACQUIRED <b>4d ago</b></div>
+            <h3>Shadow Index, Vol. II</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">hitomi.la</span></div>
+              <div><span class="k">Pages</span><span class="v r">42</span></div>
+              <div><span class="k">Format</span><span class="v">IMG</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="cov"><div class="fill f5"></div><div class="grid-on"></div><div class="n">05</div></div>
+          <div class="info">
+            <div class="num">№ 005 · ACQUIRED <b>5d ago</b></div>
+            <h3>Night-Iron, the Returning</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">comix.to</span></div>
+              <div><span class="k">Chapters</span><span class="v r">89</span></div>
+              <div><span class="k">Format</span><span class="v">CBZ</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="entry">
+          <div class="cov"><div class="fill f6"></div><div class="grid-on"></div><div class="n">06</div></div>
+          <div class="info">
+            <div class="num">№ 006 · ACQUIRED <b>1w ago</b></div>
+            <h3>Chains of the Provisional Sky</h3>
+            <div class="row">
+              <div><span class="k">Source</span><span class="v">manhwaread</span></div>
+              <div><span class="k">Chapters</span><span class="v r">33</span></div>
+              <div><span class="k">Format</span><span class="v">CBZ</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Active<em>.</em></h3>
+          <div class="ct">2 OF 2 RUNNING</div>
+        </div>
+
+        <div class="task">
+          <div class="from">FROM MANGAFIRE</div>
+          <h4>Oushuu Tairiku no Tabi</h4>
+          <div class="grid-stats">
+            <div><span class="k">Chapter</span><span class="v">14<small style="font-size:14px;color:var(--dim);font-weight:400;"> / 42</small></span></div>
+            <div><span class="k">Page</span><span class="v r">04<small style="font-size:14px;color:var(--dim);font-weight:400;"> / 28</small></span></div>
+          </div>
+          <div class="bar"><div class="fill" style="width:33%"></div></div>
+          <div class="pct-row">
+            <div class="pct">33<small style="font-size:14px;color:var(--dim);font-weight:400;">%</small></div>
+            <div class="rt">2.1 MB/S · ETA <b>04:21</b></div>
+          </div>
+        </div>
+
+        <div class="task">
+          <div class="from">FROM MANGAFIRE</div>
+          <h4>A Beast Walks the Empty Train</h4>
+          <div class="grid-stats">
+            <div><span class="k">Chapter</span><span class="v">219<small style="font-size:14px;color:var(--dim);font-weight:400;"> / 220</small></span></div>
+            <div><span class="k">Page</span><span class="v r">27<small style="font-size:14px;color:var(--dim);font-weight:400;"> / 28</small></span></div>
+          </div>
+          <div class="bar"><div class="fill r" style="width:99%"></div></div>
+          <div class="pct-row">
+            <div class="pct r">99<small style="font-size:14px;color:var(--dim);font-weight:400;">%</small></div>
+            <div class="rt">FINALISING · ETA <b>00:08</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>System<em>.</em></h3>
+          <div class="ct">NOMINAL</div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; font-family:'Archivo'; font-size:13px;">
+          <div><div style="font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);">HTTP CLIENT</div><div style="margin-top:4px;">curl_cffi · chrome120</div></div>
+          <div><div style="font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);">PLAYWRIGHT</div><div style="margin-top:4px;">chromium · ready</div></div>
+          <div><div style="font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);">FLARESOLVERR</div><div style="margin-top:4px;color:var(--dim);">offline (optional)</div></div>
+          <div><div style="font-family:'Archivo Narrow'; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);">WORKERS</div><div style="margin-top:4px;color:var(--red); font-weight:700;">8 / 8</div></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <footer class="foot">
+    <div class="c1">COMIX · <b>v2.6.5</b> · BUILD A91F</div>
+    <div class="c2">DESIGN: SWISS GRID · TYPE: ARCHIVO &amp; FRAUNCES</div>
+    <div class="c3">NO ACCOUNTS · NO TELEMETRY · <b>FILE FIRST</b></div>
+  </footer>
+</div>
+</body>
+</html>

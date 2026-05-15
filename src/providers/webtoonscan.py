@@ -71,6 +71,16 @@ _OG_DESC_RE = re.compile(
 _META_DESC_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]+)"', re.IGNORECASE
 )
+# Madara summary sidebar — same shape as mangadistrict (this and
+# mangadistrict use the exact same wp-manga theme, just with different
+# Cloudflare aggression levels). The status text is enclosed in a
+# ``<div class="summary-content">`` next to a ``<h5>Status</h5>``
+# heading.
+_STATUS_RE = re.compile(
+    r'<div[^>]*class="[^"]*summary-heading[^"]*"[^>]*>\s*<h5[^>]*>\s*Status\s*</h5>\s*</div>\s*'
+    r'<div[^>]*class="[^"]*summary-content[^"]*"[^>]*>\s*([^<]+?)\s*</div>',
+    re.IGNORECASE | re.DOTALL,
+)
 # Madara chapter list. The wrapper is `<li class="wp-manga-chapter ...">
 # <a href="https://.../manhwa/<slug>/chapter-N/">chapter N</a></li>`.
 _CHAPTER_LI_RE = re.compile(
@@ -154,8 +164,8 @@ class WebtoonscanProvider(Provider):
 
     def _parse_series_metadata(
         self, slug: str, html: str
-    ) -> tuple[str, Optional[str], str]:
-        """Return (title, cover_url, description)."""
+    ) -> tuple[str, Optional[str], str, Optional[str]]:
+        """Return (title, cover_url, description, status)."""
         title_m = _TITLE_RE.search(html) or _OG_TITLE_RE.search(html)
         title = self._clean_text(title_m.group(1)) if title_m else slug
 
@@ -172,7 +182,12 @@ class WebtoonscanProvider(Provider):
                 if description:
                     break
 
-        return title, cover, description
+        status: Optional[str] = None
+        status_m = _STATUS_RE.search(html)
+        if status_m:
+            status = unescape(status_m.group(1)).strip() or None
+
+        return title, cover, description, status
 
     def _parse_chapters(self, html: str) -> list[tuple[str, str, str]]:
         """
@@ -224,7 +239,7 @@ class WebtoonscanProvider(Provider):
 
     def get_manga_info(self, code: str) -> Optional[MangaInfo]:
         html = self._fetch_html(f"/manhwa/{code}/")
-        title, cover, description = self._parse_series_metadata(code, html)
+        title, cover, description, status = self._parse_series_metadata(code, html)
         chapters = self._parse_chapters(html)
         latest = chapters[0][1] if chapters else None
 
@@ -235,7 +250,7 @@ class WebtoonscanProvider(Provider):
             manga_type="manhwa",
             poster_url=cover,
             original_language="ko",
-            status=None,
+            status=status,
             latest_chapter=latest,
             description=description,
             source=self.name,
