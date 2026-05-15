@@ -452,6 +452,41 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-05-15 — iCloud Manga inventory (Phase 1)
+- New ``scripts/icloud_inventory.py`` — read-only walk of
+  ``~/Library/Mobile Documents/com~apple~CloudDocs/Manga/`` that
+  produces ``icloud_inventory.json`` + ``icloud_inventory.md`` at the
+  project root. **Never** mutates the iCloud tree; the user carved
+  it out as off-limits.
+- Per-entry shape includes ``folder_name`` (raw), ``title``
+  (END-stripped), ``marked_complete_by_user`` flag from the ``END``
+  suffix convention, ``chapter_count`` (number of CBZ files / PDFs /
+  image subfolders), ``format``, ``size_bytes``, plus empty
+  ``matches`` and ``effective_status`` fields that Phase 2 will fill.
+- Format detection partitions: ``per_chapter_cbz`` /
+  ``per_volume_cbz`` / ``single_cbz`` (one-shot doujinshi) /
+  ``numbered_cbz`` / ``image_folders`` / ``pdf`` / ``mixed`` /
+  ``empty``. ``single_cbz`` was added in a follow-up after the
+  initial run — pre-split, all 77 doujinshi landed in ``other_cbz``
+  with no useful signal for Phase-2 routing.
+- ``icloud_inventory.json`` + ``icloud_inventory.md`` are gitignored
+  (private title list).
+- **Phase 2 (cross-site status lookup) is planned but unimplemented.**
+  User explicitly chose "Phase 1 only" for now — wants to eyeball
+  the inventory before committing to ~30-90 min of cross-site
+  HTTP. Phase 2 design notes:
+    - Route ``single_cbz`` entries to gallery providers (nhentai /
+      hitomi / hentaifc / hentairead / hentaifox), the rest to
+      manhwa serial providers + comix.
+    - Most providers don't expose a search API; Madara sites support
+      ``?s=query``, others need a Google-fallback strategy.
+    - Mangafire needs Playwright per query. Toomics is auth-walled —
+      skip.
+    - Record every match with ``{provider, url, title_on_site,
+      reported_status, match_confidence}``. Aggregate to
+      ``effective_status``: any "completed" wins; else "ongoing";
+      else "unknown". User's END suffix also forces "completed".
+
 ### 2026-05-15 — Check Status All + Open Website
 - **New "Check Status" button** in the Library toolbar. Probes every
   entry's status via ``StatusCheckWorker`` — a new lightweight worker

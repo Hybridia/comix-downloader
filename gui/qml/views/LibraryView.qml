@@ -32,6 +32,10 @@ Item {
     // The two toolbar chips are mutually exclusive (clicking one
     // clears the other).
     property string statusFilter: ""
+    // Independent NSFW filter — hides entries where is_nsfw=true.
+    // Useful if you want to focus on serial manhwa you're following
+    // and not get distracted by doujinshi one-shots.
+    property bool hideHentai: false
 
     // Bulk "Update All" state.
     property bool bulkBusy: false
@@ -67,6 +71,8 @@ Item {
                 if (statusFilter === "hide_completed" && finished) continue
                 if (statusFilter === "only_completed" && !finished) continue
             }
+            // NSFW filter — independent of the completion filter.
+            if (hideHentai && e.is_nsfw === true) continue
             if (filter.length > 0) {
                 var hit = false
                 var hay = (e.title || "").toLowerCase()
@@ -150,6 +156,7 @@ Item {
     onFilterTextChanged: applyFilterAndSort()
     onSortModeChanged: applyFilterAndSort()
     onStatusFilterChanged: applyFilterAndSort()
+    onHideHentaiChanged: applyFilterAndSort()
 
     Component.onCompleted: refresh()
 
@@ -496,6 +503,57 @@ Item {
                 }
             }
 
+            // NSFW filter chip — independent of the completion filter
+            // pair (you can combine them, e.g. "Hide completed AND
+            // Hide hentai" to see the ongoing manhwa you follow).
+            Rectangle {
+                id: hentaiChip
+                readonly property color activeColor: "#5DADE2"
+
+                Layout.preferredHeight: 36
+                implicitWidth: hentaiRow.implicitWidth + 24
+                radius: 18
+                color: libraryView.hideHentai
+                    ? Qt.darker(activeColor, 2.2)
+                    : bgCard
+                border.color: libraryView.hideHentai
+                    ? activeColor
+                    : borderColor
+                border.width: 1
+
+                RowLayout {
+                    id: hentaiRow
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    Text {
+                        text: libraryView.hideHentai ? "✓" : "○"
+                        font.pixelSize: 13
+                        color: libraryView.hideHentai
+                            ? hentaiChip.activeColor : textTertiary
+                    }
+                    Text {
+                        text: "Hide hentai"
+                        font.pixelSize: 12
+                        font.weight: libraryView.hideHentai
+                            ? Font.DemiBold : Font.Normal
+                        color: libraryView.hideHentai
+                            ? hentaiChip.activeColor : textSecondary
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: libraryView.hideHentai = !libraryView.hideHentai
+                    hoverEnabled: true
+                    ToolTip.visible: containsMouse
+                    ToolTip.delay: 600
+                    ToolTip.text: "Hide entries flagged is_nsfw=true.\n" +
+                                  "Useful to focus on serial manhwa you're following."
+                }
+            }
+
             Item { Layout.fillWidth: true }
 
             // Result counter — shows "showing N of M" when filtered
@@ -776,6 +834,12 @@ Item {
                         }
                         onOpenWebsiteRequested: {
                             LibraryBridge.openWebsite(model.source_url)
+                        }
+                        onOpenAlternativeRequested: function(url) {
+                            // Reuse the same bridge slot — it just
+                            // calls webbrowser.open() so any http(s)
+                            // URL works the same way.
+                            LibraryBridge.openWebsite(url)
                         }
                         onConvertToCbzRequested: {
                             libraryView.busyUrl = model.source_url

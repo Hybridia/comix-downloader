@@ -141,6 +141,9 @@ secrets.json
 library.json
 icloud_inventory.json
 icloud_inventory.md
+icloud_match_cache.json
+icloud_unknowns.md
+library.json.bak.*
 .venv
 env/
 venv/

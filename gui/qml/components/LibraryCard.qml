@@ -13,6 +13,7 @@ Rectangle {
     signal removeRequested()
     signal openFolderRequested()
     signal openWebsiteRequested()
+    signal openAlternativeRequested(string url)
     signal convertToCbzRequested()
     // statusKey is one of: "completed" | "cancelled" | "ongoing" |
     // "hiatus" | "" (clear/auto). manual=true flags as user override
@@ -72,8 +73,14 @@ Rectangle {
 
     Layout.fillWidth: true
     // Make room for the optional "Convert to CBZ" button when the
-    // entry is image-format. Computed via the actions column below.
-    Layout.preferredHeight: showConvertButton ? 162 : 132
+    // entry is image-format, plus a compact row of "also on…" chips
+    // when the iCloud-import enricher found alternative sources for
+    // this title on other sites.
+    Layout.preferredHeight: {
+        var h = showConvertButton ? 162 : 132
+        if (hasAlternatives) h += 30
+        return h
+    }
 
     // Convert button visibility: shown only when the user originally
     // downloaded this manga as images. After a successful repack the
@@ -81,6 +88,13 @@ Rectangle {
     // hides on the next refresh.
     readonly property bool showConvertButton:
         entry && (entry.output_format || "").toLowerCase() === "images"
+
+    // The enrich_alternatives.py script populates this with confident
+    // matches from other providers, sorted by chapter count desc. The
+    // primary source is NOT included.
+    readonly property var alternativeSources:
+        entry ? (entry.alternative_sources || []) : []
+    readonly property bool hasAlternatives: alternativeSources.length > 0
 
     function shortDate(iso) {
         if (!iso) return "—"
@@ -284,6 +298,133 @@ Rectangle {
                 font.pixelSize: 11
                 color: root.statusMessage ? accentPrimary : textTertiary
                 elide: Text.ElideRight
+            }
+
+            // ALSO ON — alternative sources discovered via the iCloud
+            // cross-site matcher. Each chip shows the provider name +
+            // chapter count + status glyph; clicking opens the URL in
+            // the browser. Hidden when there are no alternatives.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.hasAlternatives
+                spacing: 6
+
+                Text {
+                    text: "Also on:"
+                    font.pixelSize: 10
+                    font.weight: Font.Medium
+                    color: textTertiary
+                }
+
+                Repeater {
+                    // Render at most 3 chips inline; the rest fall
+                    // into a "+ N more" overflow chip that opens a
+                    // menu listing them all.
+                    model: Math.min(3, root.alternativeSources.length)
+
+                    Rectangle {
+                        readonly property var alt: root.alternativeSources[index]
+                        readonly property color baseColor: _statusColor(alt.status || "")
+
+                        Layout.preferredHeight: 22
+                        implicitWidth: altRow.implicitWidth + 12
+                        radius: 11
+                        color: ma.containsMouse
+                            ? Qt.darker(baseColor, 1.8)
+                            : Qt.darker(baseColor, 2.5)
+                        border.color: baseColor
+                        border.width: 1
+
+                        Behavior on color { ColorAnimation { duration: 100 } }
+
+                        RowLayout {
+                            id: altRow
+                            anchors.centerIn: parent
+                            spacing: 4
+
+                            Text {
+                                text: _statusGlyph(alt.status || "")
+                                font.pixelSize: 9
+                                color: baseColor
+                            }
+                            Text {
+                                text: alt.provider
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                                color: baseColor
+                            }
+                            Text {
+                                text: (alt.chapter_count || 0) > 0
+                                    ? alt.chapter_count + "ch"
+                                    : ""
+                                visible: text.length > 0
+                                font.pixelSize: 10
+                                color: textSecondary
+                            }
+                        }
+
+                        MouseArea {
+                            id: ma
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            hoverEnabled: true
+                            onClicked: root.openAlternativeRequested(alt.url)
+
+                            ToolTip.visible: containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: alt.title_on_site
+                                ? alt.title_on_site + "\n" + alt.url
+                                : alt.url
+                        }
+                    }
+                }
+
+                // Overflow chip — "+ N more" → opens a menu with
+                // every additional alternative listed.
+                Rectangle {
+                    visible: root.alternativeSources.length > 3
+                    Layout.preferredHeight: 22
+                    implicitWidth: overflowText.implicitWidth + 14
+                    radius: 11
+                    color: overflowMa.containsMouse ? bgElevated : "transparent"
+                    border.color: "#3A3A45"
+                    border.width: 1
+
+                    Text {
+                        id: overflowText
+                        anchors.centerIn: parent
+                        text: "+ " + (root.alternativeSources.length - 3) + " more"
+                        font.pixelSize: 10
+                        color: textSecondary
+                    }
+
+                    MouseArea {
+                        id: overflowMa
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        hoverEnabled: true
+                        onClicked: overflowMenu.popup()
+                    }
+
+                    Menu {
+                        id: overflowMenu
+                        Repeater {
+                            model: Math.max(0, root.alternativeSources.length - 3)
+                            MenuItem {
+                                required property int index
+                                readonly property var alt:
+                                    root.alternativeSources[index + 3]
+                                text: alt
+                                    ? (alt.provider + " · " + (alt.chapter_count || 0)
+                                       + "ch · " + _statusLabel(alt.status || ""))
+                                    : ""
+                                onTriggered: alt ? root.openAlternativeRequested(alt.url) : null
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
             }
         }
 
