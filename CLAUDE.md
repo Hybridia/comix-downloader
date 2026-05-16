@@ -57,10 +57,20 @@ comix/
 │   │   ├── library_bridge.py     Library tab: list / update (diff vs remote) / remove / open folder
 │   │   └── settings_bridge.py    Exposes ConfigManager + toomics auth to QML
 │   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, …)
-├── scripts/                      Local diagnostic scripts (run from user's machine)
+├── scripts/                      Local diagnostic + iCloud-sync scripts (run from user's machine)
 │   ├── toomics_test.py           End-to-end probe for the toomics provider
 │   ├── mangafire_test.py         End-to-end probe for the mangafire provider
-│   └── comix_test.py             End-to-end probe for the comix provider (fast + Playwright paths)
+│   ├── comix_test.py             End-to-end probe for the comix provider (fast + Playwright paths)
+│   ├── webtoonscan_test.py       End-to-end probe for webtoonscan (verifies FlareSolverr)
+│   ├── repack_to_cbz.py          Pack image folders into CBZs (Library tab's Convert button)
+│   ├── icloud_inventory.py       Read-only walk of iCloud Manga folder → icloud_inventory.json
+│   ├── icloud_match.py           Fuzzy cross-site search per inventory entry (Madara AJAX + comix API + HTML)
+│   ├── icloud_to_library.py      Import matched inventory entries into library.json
+│   ├── enrich_alternatives.py    Populate library.alternative_sources from inventory matches
+│   ├── library_dedupe.py         Drop pre-existing library entries whose title matches an iCloud one
+│   ├── library_relocate_to_icloud.py  Repoint pre-existing entries at iCloud + drop / collapse leftovers
+│   ├── missing_chapters.py       Dry-run Update All — report what's on sites but not in iCloud
+│   └── refresh_icloud.py         Wrapper: inventory → match → import → enrich
 └── src/
     ├── api/comix.py              Low-level comix.to API — fast-path RC4 signing + Playwright fallback router
     ├── providers/                Per-site providers (uniform interface)
@@ -178,12 +188,35 @@ process-wide `RLock`. Shape (per entry):
   trailing-slash stripped). Same URL with two cosmetic variants stays
   one entry.
 - **Recording is at the chapter level** (`record_chapter`). `chapters`
-  is a dict keyed by `Chapter.number` (string) so the Library tab's
-  "Update" flow is a one-line set-difference against
-  `provider.get_chapters(...)`. New numbers get queued via
-  `DownloadBridge.startDownload`; the existing per-chapter resume
-  logic transparently re-skips anything that somehow ended up on
-  disk twice.
+  is a dict keyed by `Chapter.number` (string). It's kept up to date
+  as a snapshot of what's been written, but it is NOT the source of
+  truth for the Update flow any more (see below).
+- **Update flow uses on-disk filenames, not `library.chapters`.**
+  `UpdateProbeWorker.run()` (see `gui/bridge/library_bridge.py`)
+  reads the actual `.cbz` files in `download_path/folder`, parses
+  chapter numbers from filenames, and uses that set for the diff
+  against the site's chapter list. Chapter numbers are normalised
+  (`62.5` ⇄ `62-5` ⇄ `62_5`, leading zeros stripped) so the same
+  chapter compares equal across naming conventions. This is the fix
+  for "Update re-downloaded chapters I already have" — the library
+  was historically a stale snapshot from import time. With on-disk
+  truth, anything the user manually moves into iCloud is immediately
+  recognised; format mismatches between provider URL slugs and
+  iCloud filenames stop causing duplicates.
+- **Cross-site fallback.** When the primary URL's chapter list has
+  nothing new past what's on disk, the worker tries
+  `alternative_sources[]` (sorted by chapter_count desc by the
+  enricher). First alt whose recorded max exceeds on-disk max
+  drives the diff and the download dispatch points at that alt's
+  provider/url.
+- **Empty / missing target folder → silent "no updates".** Library
+  entries for series the user abandoned (no CBZs anywhere) stop
+  triggering downloads.
+- **`_reload_if_changed()` on every locked method.** LibraryManager
+  tracks `library.json`'s mtime and reloads before any mutation if
+  the file changed externally (i.e. a helper script edited it while
+  the GUI was open). Without this, every script in the iCloud
+  pipeline had to be re-run because the GUI overwrote its work.
 - **Recorded from both front-ends.** `DownloadWorker._download_single_chapter`
   (GUI) and `MangaDownloader.download_chapters` (CLI) both call
   `library.shared().upsert_manga(...)` once at the start of a run and
@@ -195,10 +228,100 @@ process-wide `RLock`. Shape (per entry):
   parent folder got renamed would be worse than the inverse. Hit
   "Remove" → re-download to recover.
 - The GUI's `LibraryBridge` (`gui/bridge/library_bridge.py`) exposes
-  three slots to QML: `listEntries`, `updateEntry(url)` (worker
-  thread → diff → hand to DownloadBridge), `removeEntry(url)`,
-  `openFolder(url)`. `attach_download_bridge()` wires the
-  cross-bridge call in `gui/main.py`.
+  these slots to QML: `listEntries`, `updateEntry(url)` and
+  `updateAll()` (probe + download), `checkStatusAll()` (probe only,
+  no downloads), `setStatus(url, status, manual)`, `removeEntry(url)`,
+  `openFolder(url)`, `openWebsite(url)` (browser), `convertToCbz(url)`.
+  `attach_download_bridge()` wires the cross-bridge call in `gui/main.py`.
+
+### iCloud → Library workflow (`scripts/icloud_*.py` + `refresh_icloud.py`)
+
+The macOS-flavoured side of the project. Users who keep their manga
+collection in `~/Library/Mobile Documents/com~apple~CloudDocs/Manga/`
+(Apple iCloud Drive) can have the Library tab automatically reflect
+that collection, with multi-site URL tracking and status badges.
+
+The iCloud folder is **read-only** as far as our code goes — every
+script in this pipeline reads from iCloud and writes only to
+`library.json` and the project's own report files. Phase 4 (chapter
+updates from sites) writes to `config.download_path` (typically
+`./downloads/`), not iCloud — the user moves new chapters into
+iCloud manually when they want to.
+
+Pipeline:
+
+1. **`icloud_inventory.py`** — read-only walk of the iCloud folder.
+   Per top-level folder: cleaned title (END suffix stripped, flagged
+   as `marked_complete_by_user`), chapter count by format detection
+   (`per_chapter_cbz` / `per_volume_cbz` / `single_cbz` / `mixed` /
+   `image_folders` / `pdf`), total size. Output:
+   `icloud_inventory.json` + `icloud_inventory.md` (gitignored).
+   **Idempotent re-runs** — on a re-scan, Phase-2 match data for
+   existing folders is carried forward; only genuinely-new folders
+   need fresh searches.
+
+2. **`icloud_match.py`** — cross-site fuzzy search. For each
+   inventory entry, queries every provider that exposes a search
+   endpoint (Madara AJAX for toonily/mangadistrict; HTML for
+   manhwaread/manhwabuddy/nhentai/hentairead/hentaifox;
+   comix.to keyword API). Records every high/medium-confidence
+   match with `{provider, url, title_on_site, status,
+   match_score, match_confidence}`. Aggregates effective_status
+   by per-provider top match: any "completed" wins; any "ongoing"
+   second; "unknown" otherwise. User's END marker forces
+   "completed". `--unknowns-only` mode skips already-resolved
+   entries.
+
+3. **`icloud_to_library.py`** — imports each matched inventory
+   entry into `library.json`. Picks the best non-skipped match
+   (`ALLOWED_PROVIDERS = SERIAL_ALLOWED ∪ GALLERY_ALLOWED`),
+   constructs a library entry with `download_path` = iCloud root,
+   `folder` = the iCloud folder name (so the new entry's truth set
+   IS the iCloud filenames). `origin = "icloud_import"` so dedupe
+   later knows which entries are pipeline-built. Chapter numbers
+   extracted from filenames into the entry's `chapters` dict for
+   compatibility (Update doesn't strictly need it, but the GUI
+   shows the count).
+
+4. **`enrich_alternatives.py`** — for each library entry, walks
+   inventory matches and records non-primary high/medium matches
+   as `alternative_sources[] = [{provider, url, title_on_site,
+   status, chapter_count, ...}]`. Sorted desc by chapter_count.
+   The LibraryCard renders these as the "Also on:" chip row,
+   click → opens the URL in browser. Used by UpdateProbeWorker as
+   the fallback list when the primary site has nothing new.
+
+5. **`library_dedupe.py`** — collapses pre-existing library entries
+   whose title or folder fuzzy-matches an iCloud-imported entry.
+   Two fuzz strengths: strict (alphanumerics only) and loose
+   (strips TOP / END / Uncensored / Decensored / Raw / Hot /
+   Complete suffix words too — catches "Glory Hole Shop TOP" vs
+   iCloud's "Glory Hole Shop").
+
+6. **`library_relocate_to_icloud.py`** — for any pre-existing
+   library entry that survives dedupe but has an iCloud counterpart,
+   rewrites `download_path`/`folder` to point at iCloud and tags
+   `origin = "icloud_import"`. Drops entries with no iCloud
+   counterpart entirely (these are series the user downloaded
+   in-app once and never moved to iCloud — usually noise like
+   Strawberry Love or Bastard). Final pass collapses entries that
+   resolve to the same iCloud folder, keeping the richer
+   `alternative_sources` list. After this, **every** library
+   entry's truth folder lives in iCloud.
+
+7. **`missing_chapters.py`** — read-only dry-run Update All. Walks
+   library entries, probes primary + alternatives, lists chapters
+   on any site that aren't in iCloud (format-normalised). Output:
+   `missing_chapters_report.md` (gitignored). Run when you want to
+   know what's missing without committing to actual downloads.
+
+8. **`refresh_icloud.py`** — wrapper that runs inventory → match
+   (`--unknowns-only`) → import → enrich in sequence. The standard
+   "I added new manga to iCloud, sync the library" command.
+   `--skip-match` / `--skip-import` / `--skip-enrich` flags for
+   debugging individual stages.
+
+All output files are gitignored — they contain the user's title list.
 
 ### Per-run failure log (`src/core/failure_log.py`)
 
@@ -452,6 +575,141 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-05-16 — Update reads iCloud filenames; library cache reload
+- **UpdateProbeWorker rewritten to use on-disk filenames as truth.**
+  The library's ``chapters`` dict is now advisory only. The worker
+  reads ``download_path / folder`` (which for iCloud-imported
+  entries is the iCloud subfolder), parses chapter numbers from the
+  .cbz filenames, and uses that set as "what I have" for the diff.
+  Fixes the long-standing bug where the library was a stale snapshot
+  from import-time and any chapter the user manually moved into / out
+  of iCloud was invisible to Update. New helpers
+  ``_chapter_numbers_on_disk`` / ``_norm_chapter_number`` /
+  ``_max_chapter`` live at module level in
+  ``gui/bridge/library_bridge.py``.
+- **Chapter-number format normalisation.** The same chapter shows up
+  in three notations across providers and filesystems: dot
+  (``62.5`` — comix / canonical), hyphen (``62-5`` — Madara URL
+  slugs), and underscore (``62_5`` — some iCloud filenames where
+  the user replaced ``.``/``-`` with ``_`` for legibility).
+  ``_norm_chapter_number`` collapses all three to a single canonical
+  form (and strips leading zeros), so ``Chapter_68_1.cbz`` in iCloud
+  correctly matches ``chapter-68-1`` from toonily and doesn't get
+  re-downloaded.
+- **Cross-site fallback in Update.** When the primary site has
+  nothing new for the on-disk set, the worker walks
+  ``entry.alternative_sources[]`` (already sorted desc by
+  chapter_count from the enricher). First alt whose recorded max
+  exceeds on-disk max wins — its chapter list drives the diff and
+  the download dispatch points at its provider/url. So if comix
+  has chapter 35 but toonily (primary) only has 34, Update fetches
+  from comix.
+- **Empty / missing target folder → silent "no updates".** Library
+  entries for series the user abandoned (no CBZs anywhere) stop
+  triggering downloads. This is what caught the 154-chapter Bastard
+  re-download.
+- **LibraryManager: mtime-based reload.** The singleton used to load
+  ``library.json`` once at startup and any subsequent ``_save()``
+  blindly wrote the cached dict back. So if a script
+  (``library_relocate_to_icloud.py`` etc.) edited the file while the
+  GUI was open, the next GUI mutation reverted it. Fix:
+  ``_reload_if_changed()`` is called at the top of every locked
+  method; if the file's mtime advanced since our last load/save,
+  reload first. Tolerance of 0.5s so our own writes don't look
+  "external" on the very next call. Without this fix every script
+  in this changelog round had a "ran twice because GUI clobbered
+  it" story.
+
+### 2026-05-15/16 — iCloud → Library pipeline (Phases 2 + 3 + cleanup)
+- **Phase 2 (cross-site matcher) shipped.** ``scripts/icloud_match.py``
+  walks inventory entries, runs fuzzy search across 12 providers
+  (Madara AJAX, comix.to keyword API, gallery HTML), scores results
+  with a custom containment-aware similarity, records every
+  high/medium-confidence hit per entry. ``--unknowns-only`` mode for
+  incremental runs. Cache at ``icloud_match_cache.json``.
+- **Provider search adapters**:
+  ``_aj_search_madara`` (toonily, mangadistrict — Madara
+  ``/wp-admin/admin-ajax.php`` AJAX); HTML adapters for nhentai,
+  hentairead, hentaifox, manhwaread, manhwabuddy;
+  ``_api_search_comix`` (comix's ``/api/v1/manga?keyword=`` — note
+  the parameter name; ``q``/``search``/``title`` all return the
+  unfiltered catalogue). Manhwa18 / hentaifc / hitomi / mangafire
+  search not implemented (no working endpoint, or Playwright-heavy).
+- **``query_variants()``** generates 1-3 progressive search strings:
+  primary (just cleanup) → modifier-stripped (drops "Uncensored",
+  "TOP", "END", "Full Color", "Releasing") → first-3-words last
+  resort. Used to find e.g. "From Pauper to Prince" when the iCloud
+  folder is "From Pauper to Prince (Uncensored)".
+- **Per-provider-best aggregator.** Searches return multiple
+  similar-titled siblings on comix ("Chained Soldier" returns
+  "Chained Soldier" + two unrelated "Soldier" entries). Original
+  aggregator OR'd reported_status across ALL matches, so an unrelated
+  sibling's "completed" would mis-tag the real ongoing series.
+  Fixed: ``aggregate_status`` keeps only the TOP-scoring match per
+  provider before checking statuses.
+- **Phase 3 — ``icloud_to_library.py``** — imports each iCloud
+  inventory entry into ``library.json`` keyed by the best match's
+  URL. ``origin = "icloud_import"``, chapter numbers extracted from
+  iCloud filenames (so Update has accurate on-disk state),
+  ``download_path = ICLOUD_ROOT`` and ``folder = iCloud folder name``
+  so "📂 Folder" opens the real files. Allowed providers: serial
+  manhwa (toonily / mangadistrict / manhwaread / manhwabuddy /
+  comix / webtoonscan / manhwa18 / mangafire) AND gallery (nhentai /
+  hentairead / hentaifox / hentaifc / hitomi) — gallery imports
+  carry ``is_nsfw = True``.
+- **``enrich_alternatives.py``** — for each library entry, walks
+  inventory matches and records non-primary high/medium matches as
+  ``alternative_sources[] = [{provider, url, status, chapter_count,
+  match_score, ...}]``. ``chapter_count`` comes from each provider's
+  ``latest_chapter`` (cached). The GUI's LibraryCard renders these
+  as the "Also on:" chip row, click → opens that URL in browser.
+- **``library_dedupe.py``** — collapses pre-existing library entries
+  whose title (or folder) fuzzy-matches an iCloud entry's title or
+  folder. Uses both strict fuzz (alphanumerics only) and "loose"
+  fuzz that drops TOP/END/Uncensored/Decensored/Raw/Hot/Complete
+  suffixes. Also drops the single intra-import dup (manhwaread "The
+  Mating of Elves" vs the comix one).
+- **``library_relocate_to_icloud.py``** — for pre-existing entries
+  that survived dedupe but have an iCloud counterpart, rewrites
+  ``download_path``/``folder`` to point at iCloud and tags
+  ``origin = "icloud_import"``. Drops entries with no iCloud
+  counterpart (Strawberry Love, Please Put Them On, Bastard et al.).
+  Collapses entries that now resolve to the same iCloud folder,
+  keeping the richer alternative_sources list. After this, every
+  library entry's truth folder is iCloud — Update never reads from
+  ``./downloads/`` again.
+- **``missing_chapters.py``** — dry-run Update All. Walks every
+  library entry, probes primary + alternatives, lists chapters on
+  any site that aren't in iCloud (format-normalised). Output:
+  ``missing_chapters_report.md`` (gitignored). Run when you want to
+  know what to manually pull into iCloud without committing to
+  actual downloads.
+- **``refresh_icloud.py``** — wrapper that runs inventory → match
+  (``--unknowns-only``) → import → enrich in sequence. Idempotent;
+  fast on no-op runs because cache covers everything.
+- **GUI additions for the iCloud workflow**:
+    - LibraryCard "Also on:" chip row with provider badges +
+      chapter counts; click opens the URL.
+    - "🔗 Website" button + a new ``LibraryBridge.openWebsite``
+      slot that uses ``webbrowser.open()``.
+    - Toolbar chips: "Hide completed" (existing) is now joined by
+      "Only completed" (mutually exclusive) and "Hide hentai"
+      (independent — filters by ``is_nsfw``).
+    - Unset status pill renders as an amber "+ Set status" CTA
+      instead of dim "? Status?".
+- **Provider status extraction added for 5 more providers**:
+  manhwaread (``data-status=`` attribute), manhwabuddy (h5+span),
+  manhwa18 (info-item span — value carries the literal "On going"
+  with a space), mangadistrict + webtoonscan (Madara summary block:
+  ``<h5>Status</h5></div><div class="summary-content">…``).
+  ``normalize_status`` now collapses whitespace + hyphens so
+  ``OnGoing`` / ``On going`` / ``on-going`` all resolve to
+  ``ongoing``; ``releasing`` (mangafire's term) added to the
+  ongoing vocabulary.
+- **The two remaining no-status providers** are mangafire (JS-rendered
+  series page — would need Playwright DOM read) and toomics
+  (paywalled). Manual ✋ "Mark as Completed" override covers them.
+
 ### 2026-05-15 — iCloud Manga inventory (Phase 1)
 - New ``scripts/icloud_inventory.py`` — read-only walk of
   ``~/Library/Mobile Documents/com~apple~CloudDocs/Manga/`` that
@@ -471,21 +729,9 @@ the what).
   with no useful signal for Phase-2 routing.
 - ``icloud_inventory.json`` + ``icloud_inventory.md`` are gitignored
   (private title list).
-- **Phase 2 (cross-site status lookup) is planned but unimplemented.**
-  User explicitly chose "Phase 1 only" for now — wants to eyeball
-  the inventory before committing to ~30-90 min of cross-site
-  HTTP. Phase 2 design notes:
-    - Route ``single_cbz`` entries to gallery providers (nhentai /
-      hitomi / hentaifc / hentairead / hentaifox), the rest to
-      manhwa serial providers + comix.
-    - Most providers don't expose a search API; Madara sites support
-      ``?s=query``, others need a Google-fallback strategy.
-    - Mangafire needs Playwright per query. Toomics is auth-walled —
-      skip.
-    - Record every match with ``{provider, url, title_on_site,
-      reported_status, match_confidence}``. Aggregate to
-      ``effective_status``: any "completed" wins; else "ongoing";
-      else "unknown". User's END suffix also forces "completed".
+- **Phase 2** (cross-site status lookup) and **Phase 3** (library
+  import) shipped later the same day. See the
+  "2026-05-15/16 — iCloud → Library pipeline" entry above.
 
 ### 2026-05-15 — Check Status All + Open Website
 - **New "Check Status" button** in the Library toolbar. Probes every

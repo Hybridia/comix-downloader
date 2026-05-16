@@ -62,8 +62,9 @@
 
 ## 🆕 What's new in this fork
 
-- **9 additional providers** beyond the original three (`comix.to`, `nhentai.to`, `hitomi.la`):
+- **11 additional providers** beyond the original three (`comix.to`, `nhentai.to`, `hitomi.la`):
   `hentaifc.com`, `hentairead.com`, `hentaifox.com`, `toonily.com`, `manhwaread.com`,
+  `manhwabuddy.com`, `manhwa18.com`, `mangadistrict.com`, `webtoonscan.com`,
   `global.toomics.com` (paid), `mangafire.to`.
 - **Comix.to anti-scraper resilience.** comix.to rebuilt as an SPA on `/api/v1`
   with VMProtect-style obfuscated request signing AND encrypted response bodies.
@@ -77,8 +78,33 @@
   gitignored `secrets.json` (mode 0600); cookie-paste fallback for when
   toomics adds captchas to the form.
 - **Persistent library** (`library.json`). Library tab shows every
-  downloaded series; "Update" diffs against the source provider and
-  queues new chapters automatically.
+  downloaded series with cover, status badge (Completed / Ongoing /
+  Hiatus — auto-detected from the source where supported, manually
+  marked otherwise), and search / sort / filter chips (Hide
+  completed, Only completed, Hide hentai).
+- **Update + Check Status** as two separate buttons. "Update All"
+  probes + downloads new chapters; "Check Status All" is a
+  lightweight pass that only refreshes badges, never downloads —
+  fixes the foot-gun where clicking the obvious refresh button
+  silently pulled chapters you didn't want. Completed entries are
+  auto-skipped by Update All.
+- **Multi-site alternative sources** per library entry. The card
+  shows an "Also on:" row of clickable provider chips (sorted by
+  chapter count) when the same series is found on multiple sites.
+  Click to open that site's page in the browser. Update uses the
+  alternatives as a fallback when the primary site has nothing new.
+- **iCloud → Library pipeline** (macOS-flavoured). Read-only walk
+  of `~/Library/Mobile Documents/com~apple~CloudDocs/Manga/`,
+  cross-references each folder against all supported providers via
+  fuzzy search, and imports matches into `library.json` with the
+  iCloud folder as the source of truth. `scripts/refresh_icloud.py`
+  is the one-shot wrapper.
+- **On-disk-truth Update flow.** UpdateProbeWorker reads the actual
+  `.cbz` filenames in the entry's folder (not `library.chapters`)
+  to compute what's new. Chapter numbers are normalised across
+  dot / hyphen / underscore notations so `Chapter_62.5.cbz` and
+  `chapter-62-5` count as the same chapter no matter which site
+  reports which.
 - **Multi-job download UI.** Start two or three downloads at once; each
   gets its own card on the Downloads tab with cover, title, per-job
   overall progress, and active chapter rows. Finished cards stick around
@@ -248,7 +274,7 @@ comix-downloader/
 │   ├── main.py                   GUI entry point
 │   ├── bridge/                   Python ↔ QML bridges (download, library, manga, settings)
 │   └── qml/                      Views + components (multi-job ProgressPanel, LibraryView, …)
-├── scripts/                      Per-provider diagnostic scripts
+├── scripts/                      Diagnostic scripts (per-provider tests) + iCloud → Library pipeline (icloud_*.py, refresh_icloud.py, library_dedupe.py, library_relocate_to_icloud.py, missing_chapters.py)
 └── src/
     ├── api/comix.py              comix.to low-level API + Playwright fallback router
     ├── providers/                Per-site providers (uniform Provider ABC)
