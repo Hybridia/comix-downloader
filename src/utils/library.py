@@ -177,12 +177,19 @@ class LibraryManager:
     def __init__(self, path: Optional[Path] = None):
         self.path: Path = Path(path) if path else _DEFAULT_PATH
         self._data: dict = {"version": _SCHEMA_VERSION, "entries": []}
+        # Track the file's mtime at the moment we last loaded or saved.
+        # ``_reload_if_changed`` uses this to detect external edits
+        # (e.g. the user runs ``scripts/library_relocate_to_icloud.py``
+        # while the GUI is open) so the next GUI write doesn't clobber
+        # them.
+        self._mtime: float = 0.0
         self._load()
 
     # --- IO ----------------------------------------------------------
 
     def _load(self) -> None:
         if not self.path.exists():
+            self._mtime = 0.0
             return
         try:
             with self.path.open("r", encoding="utf-8") as f:
@@ -192,10 +199,35 @@ class LibraryManager:
                 # Forward compatibility: tolerate missing keys per entry.
                 for e in self._data["entries"]:
                     e.setdefault("chapters", {})
+            self._mtime = self.path.stat().st_mtime
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
                 "library.json unreadable (%s); starting from empty library.", exc
             )
+
+    def _reload_if_changed(self) -> None:
+        """
+        Re-read library.json from disk if its mtime has advanced since
+        our last load or save — i.e. some other process (a script) has
+        edited it. Without this, every GUI mutation would silently
+        revert the script's changes by writing our stale in-memory
+        copy back over them.
+
+        Uses a small tolerance (0.5s) because os.replace gives the new
+        file a slightly newer mtime than the second we set during
+        ``_save``, and we don't want our own writes to look "external"
+        on the very next call.
+        """
+        try:
+            current = self.path.stat().st_mtime
+        except OSError:
+            return
+        if current > self._mtime + 0.5:
+            logger.info(
+                "library.json changed externally (mtime %s > %s); reloading",
+                current, self._mtime,
+            )
+            self._load()
 
     def _save(self) -> None:
         try:
@@ -204,6 +236,7 @@ class LibraryManager:
             with tmp.open("w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2, ensure_ascii=False)
             os.replace(tmp, self.path)
+            self._mtime = self.path.stat().st_mtime
         except OSError as exc:
             logger.error("Failed to persist library.json: %s", exc)
 
@@ -224,11 +257,13 @@ class LibraryManager:
     def list_entries(self) -> list[dict]:
         """Return a deep-ish copy of all entries (safe for QML)."""
         with _lock:
+            self._reload_if_changed()
             # shallow-copy each entry; chapters is a small dict so ok.
             return [dict(e) for e in self._data["entries"]]
 
     def get_entry(self, source_url: str) -> Optional[dict]:
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             return dict(self._data["entries"][i]) if i >= 0 else None
 
@@ -252,6 +287,7 @@ class LibraryManager:
         effective ``status`` is left alone.
         """
         with _lock:
+            self._reload_if_changed()
             now = _now_iso()
             auto_status = normalize_status(getattr(manga, "status", None))
             entry = {
@@ -323,6 +359,7 @@ class LibraryManager:
         """
         normalized = normalize_status(status) if status else ""
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             if i < 0:
                 return False
@@ -348,6 +385,7 @@ class LibraryManager:
     ) -> None:
         """Mark a single chapter as successfully downloaded."""
         with _lock:
+            self._reload_if_changed()
             url = _normalize_url(getattr(manga, "source_url", "") or "")
             if not url:
                 # No source URL means we can't dedupe; skip silently
@@ -383,6 +421,7 @@ class LibraryManager:
         that disagrees.
         """
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             if i < 0:
                 return
@@ -402,6 +441,7 @@ class LibraryManager:
         existed and was updated.
         """
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             if i < 0:
                 return False
@@ -412,6 +452,7 @@ class LibraryManager:
 
     def remove_entry(self, source_url: str) -> bool:
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             if i < 0:
                 return False
@@ -421,6 +462,7 @@ class LibraryManager:
 
     def downloaded_chapter_numbers(self, source_url: str) -> set[str]:
         with _lock:
+            self._reload_if_changed()
             i = self._index(source_url)
             if i < 0:
                 return set()

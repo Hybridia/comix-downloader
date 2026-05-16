@@ -43,8 +43,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # ``Chapter_62.5.cbz`` (iCloud's dot convention) and ``chapter-62-5``
 # (Madara's hyphen convention) count as the same chapter.
 
+# Match "Chapter 62", "Chapter_62", "ch 62.5", "Chapter_68_1.cbz", "Chapter_82-5",
+# "Chapter 4.1". The fraction separator can be ``.``, ``-``, or ``_`` —
+# users encode sub-chapters all three ways in filenames (``68.5`` /
+# ``68-5`` / ``68_5``). The normaliser below collapses them.
 _FILENAME_CHAPTER_RE = re.compile(
-    r"(?:chapter|chap|episode|ep|ch)[_\s\.\-]*(\d+(?:[-.]\d+)?)",
+    r"(?:chapter|chap|episode|ep|ch)[_\s\.\-]*(\d+(?:[-._]\d+)?)",
     re.IGNORECASE,
 )
 
@@ -53,13 +57,18 @@ def _norm_chapter_number(n: str) -> str:
     """
     Canonicalise a chapter-number string for cross-site comparison.
 
-    - Collapses hyphen + dot fractions (``62-5`` ⇄ ``62.5``) so the
-      same chapter compares equal regardless of which site's naming
-      convention it came from.
+    - Collapses fraction separators (``62-5`` ⇄ ``62.5`` ⇄ ``62_5``)
+      so the same chapter compares equal regardless of which site's
+      or filename's convention it came from. Three separators are in
+      common use:
+        * dot — comix and most providers' canonical
+        * hyphen — Madara URL slugs (``chapter-62-5``)
+        * underscore — some iCloud filenames (``Chapter_62_5.cbz``)
+          where the user replaced reserved chars manually
     - Strips leading zeros from the integer part (``007`` → ``7``)
       so padded filenames compare equal to unpadded site numbers.
     """
-    s = str(n).replace("-", ".")
+    s = str(n).replace("-", ".").replace("_", ".")
     if "." in s:
         head, tail = s.split(".", 1)
         try:
