@@ -11,10 +11,10 @@ ApplicationWindow {
     readonly property color bgDeep: "#0A0A0C"
     readonly property color bgSurface: "#141419"
     
-    width: 1100
-    height: 750
-    minimumWidth: 900
-    minimumHeight: 650
+    width: 1320
+    height: 820
+    minimumWidth: 1100
+    minimumHeight: 680
     visible: true
     title: "Comix Downloader"
     color: bgDeep

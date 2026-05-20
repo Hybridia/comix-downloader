@@ -430,7 +430,14 @@ Rectangle {
 
         // ACTIONS
         ColumnLayout {
-            Layout.preferredWidth: 130
+            // minimumWidth must be set or the layout will shrink this
+            // column to a sliver when the metadata column's implicit
+            // width grows (lots of "Also on:" chips, long titles, etc.)
+            // — leaving only the left edge of every button visible.
+            // 170px fits the Folder+Website side-by-side row without
+            // text truncation; below ~150 they degrade to "Fol…".
+            Layout.preferredWidth: 170
+            Layout.minimumWidth: 170
             Layout.fillHeight: true
             spacing: 6
 

@@ -17,8 +17,9 @@ PDF, or a CBZ. Two front-ends share the same core:
 - **GUI** (`gui/main.py`) — PyQt6 + QML, dark-themed.
 
 NSFW-tolerant — comix.to, nhentai.to, hitomi.la, hentaifc.com,
-hentairead.com, hentaifox.com, toonily.com, manhwaread.com, toomics
-(paid VIP), and mangafire.to are all supported sources.
+hentairead.com, hentaifox.com, toonily.com, manhwaread.com,
+manhwa18.com, manhwa18.net, toomics (paid VIP), and mangafire.to are
+all supported sources.
 
 ### Provider matrix at-a-glance
 
@@ -34,6 +35,7 @@ hentairead.com, hentaifox.com, toonily.com, manhwaread.com, toomics
 | `manhwaread.com`        | none                | mangomic theme; b64 chapterData   | **Multi-chapter**; same theme as hentairead |
 | `manhwabuddy.com`       | Cloudflare only     | plain HTML; `data-src` reader imgs | **Multi-chapter**; simplest provider in the matrix |
 | `manhwa18.com`          | Cloudflare only     | plain HTML; `data-src` lazy imgs; rotating CDN | Multi-chapter NSFW manhwa; chapters use multiple CDN hosts |
+| `manhwa18.net`          | none                | **Inertia.js SPA**; props embedded as JSON in `data-page` | Distinct from `.com` — Laravel+Inertia; same pornwa→min CDN history |
 | `mangadistrict.com`     | Cloudflare only     | Madara theme; eager `src` reader imgs | Multi-chapter NSFW manhwa; same theme as webtoonscan but no FlareSolverr needed |
 | `webtoonscan.com`       | Cloudflare (hard)   | **FlareSolverr required** — defeats curl_cffi AND Playwright | Multi-chapter Madara theme; aggressive bot management |
 | `global.toomics.com`    | **paid login**      | `secrets.json` cookie/credential  | One active session per account     |
@@ -86,6 +88,7 @@ comix/
     │   ├── manhwaread.py         ManhwareadProvider (multi-chapter; mangomic theme + b64 chapterData)
     │   ├── manhwabuddy.py        ManhwabuddyProvider (multi-chapter; plain HTML, no JS, simplest provider)
     │   ├── manhwa18.py           Manhwa18Provider (multi-chapter; plain HTML; rotating CDN per chapter)
+    │   ├── manhwa18net.py        Manhwa18NetProvider (multi-chapter; Inertia.js SPA — JSON in data-page)
     │   ├── mangadistrict.py      MangadistrictProvider (multi-chapter; Madara; plain HTTP, no FlareSolverr)
     │   ├── webtoonscan.py        WebtoonscanProvider (multi-chapter; Madara; FlareSolverr required)
     │   ├── toomics.py            ToomicsProvider (cookie/credential auth)
@@ -574,6 +577,54 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-05-20 — manhwa18.net provider (Inertia.js SPA)
+- New `Manhwa18NetProvider` for `www.manhwa18.net`. Despite the
+  similar name, this is a different site than `manhwa18.com` — it's
+  a Laravel + Inertia.js SPA. The server returns the same minimal
+  HTML shell on every page; the real payload (manga record + entire
+  chapter list, or reader page's image list) lives inside a single
+  attribute: `<div id="app" data-page="...">`. The value is
+  HTML-entity-encoded JSON.
+- **Two-fetch flow, both Inertia-shaped**:
+    1. `GET /manga/<slug>` → ``props.manga`` (name, other_name,
+       cover_url, pilot/synopsis, genres[], artists[],
+       latest_chapter_id) + ``props.chapters[]`` (every chapter in a
+       single response — 309 for Secret Class). Each chapter has
+       ``id``, ``name``, ``slug``, ``order``.
+    2. `GET /manga/<slug>/<chapter-slug>` → ``props.chapterContent``
+       is an HTML string of ``<img src="..." loading="lazy"/>`` tags
+       in reading order.
+- **Chapter URL slugs vary by chapter age.** Recent chapters use
+  ``chapter-N`` (e.g. ``chapter-306``); older imports keep a legacy
+  format ``chap-NN-<numeric_id>`` (e.g. ``chap-01-361``). The provider
+  uses each chapter's ``slug`` field verbatim, so both formats
+  reach the reader.
+- **Image CDN rotates by chapter age** (same legacy as `.com`):
+    - Recent (~2024+) → ``min.manhwa18.net``
+    - 2022-era       → ``cdn.pornwa.club``
+    - 2021-era       → ``cdn.pornwa.us``
+  Provider does NOT host-filter image URLs from `chapterContent` —
+  that field only contains the chapter's real images (Inertia gives
+  us a clean slice without site chrome), so any host filter would
+  mis-drop old chapters. Verified live with chapters 1, 153, and
+  306; all three CDNs return 200 with image/jpeg.
+- **No Cloudflare / anti-bot in practice.** Default `get_session()`
+  (curl_cffi chrome120 impersonation) passes through with a normal
+  Referer header.
+- **`is_nsfw=True` hard-coded** — site is explicitly 18+, and the
+  per-manga ``is_adult_content`` flag isn't reliable (Secret Class
+  returns 0 despite being adult).
+- **`status` left as None.** Site exposes ``status_id`` as an integer
+  with no documented mapping; manual status override via the library
+  card covers the gap.
+- **No conflict with `manhwa18.com` provider.** That provider's
+  `matches()` substring-checks ``"manhwa18.com"``, so it will not
+  claim a ``.net`` URL.
+- `Chapter.volume` carries the absolute reader URL per the
+  per-provider stash convention (toonily / manhwabuddy / manhwaread /
+  comix all do the same), so `get_chapter_images` works after the GUI
+  bridge's lossy chapter-dict serialisation.
 
 ### 2026-05-16 — Update reads iCloud filenames; library cache reload
 - **UpdateProbeWorker rewritten to use on-disk filenames as truth.**
