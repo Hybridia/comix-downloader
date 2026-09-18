@@ -12,6 +12,17 @@ logger = get_logger(__name__)
 T = TypeVar("T")
 
 
+class NonRetryableError(Exception):
+    """
+    Base class for failures that will never succeed on a retry.
+
+    Same philosophy as the image downloader's "404 isn't transient" rule:
+    when we *know* the next attempt hits the identical wall, burning the
+    backoff schedule only delays the error the user needs to see. Raise a
+    subclass and both retry helpers below re-raise it immediately.
+    """
+
+
 def retry_with_backoff(
     max_retries: int = 3,
     base_delay: float = 2.0,
@@ -36,9 +47,11 @@ def retry_with_backoff(
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
+                except NonRetryableError:
+                    raise
                 except exceptions as e:
                     last_exception = e
-                    
+
                     if attempt < max_retries:
                         delay = base_delay * (2 ** attempt)
                         logger.warning(
@@ -85,6 +98,8 @@ class RetryableDownloader:
             try:
                 result = download_func()
                 return True, result, None
+            except NonRetryableError as e:
+                return False, None, str(e)
             except Exception as e:
                 last_error = str(e)
                 

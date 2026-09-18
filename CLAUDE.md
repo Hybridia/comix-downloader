@@ -37,6 +37,7 @@ all supported sources.
 | `manhwa18.com`          | Cloudflare only     | plain HTML; `data-src` lazy imgs; rotating CDN | Multi-chapter NSFW manhwa; chapters use multiple CDN hosts |
 | `manhwa18.net`          | none                | **Inertia.js SPA**; props embedded as JSON in `data-page` | Distinct from `.com` — Laravel+Inertia; same pornwa→min CDN history |
 | `mangadistrict.com`     | Cloudflare only     | Madara theme; eager `src` reader imgs | Multi-chapter NSFW manhwa; same theme as webtoonscan but no FlareSolverr needed |
+| `manga18fx.com`         | none                | Madara-ish HTML; `chapter-name` anchors; `/uploads/` reader imgs | Multi-chapter NSFW manhwa; plain HTTP, no anti-bot. Unrelated to manhwa18.* |
 | `webtoonscan.com`       | Cloudflare (hard)   | **FlareSolverr required** — defeats curl_cffi AND Playwright | Multi-chapter Madara theme; aggressive bot management |
 | `global.toomics.com`    | **paid login**      | `secrets.json` cookie/credential  | One active session per account     |
 | `mangafire.to`          | anti-bot only       | **Playwright** (CF + VRF capture) | Heaviest provider; needs Chromium  |
@@ -90,6 +91,7 @@ comix/
     │   ├── manhwa18.py           Manhwa18Provider (multi-chapter; plain HTML; rotating CDN per chapter)
     │   ├── manhwa18net.py        Manhwa18NetProvider (multi-chapter; Inertia.js SPA — JSON in data-page)
     │   ├── mangadistrict.py      MangadistrictProvider (multi-chapter; Madara; plain HTTP, no FlareSolverr)
+    │   ├── manga18fx.py          Manga18fxProvider (multi-chapter; Madara-ish; chapter-name anchors + /uploads/ imgs)
     │   ├── webtoonscan.py        WebtoonscanProvider (multi-chapter; Madara; FlareSolverr required)
     │   ├── toomics.py            ToomicsProvider (cookie/credential auth)
     │   └── mangafire.py          MangafireProvider (Playwright VRF + CF cookies)
@@ -577,6 +579,115 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-08-09 — fail fast on network-level (SNI) blocks
+- **Symptom:** toonily stopped fetching entirely. Root cause was *not*
+  in this repo — an on-path middlebox (ISP-side) kills the TLS
+  handshake based on the hostname in the ClientHello, so the failure
+  lands before a single HTTP byte moves. Diagnosis that nails it:
+  sending SNI `toonily.com` to an **unrelated** IP (example.com's)
+  fails identically, while SNI `manga18fx.com` to *toonily's own* IP
+  succeeds. DNS is clean on every resolver. Confirmed fixed by a VPN.
+- **Blocked from the user's home connection:** `toonily.com`,
+  `mangadistrict.com`, `hitomi.la`. Every other domain in the provider
+  matrix is reachable. Note the image CDN `data.tnlycdn.com` is *not*
+  blocked — only the site domain — but that doesn't rescue a download,
+  since the reader page must be fetched first to learn the image URLs.
+- **None of our three defenses can help here** and it's worth
+  internalising why: curl_cffi impersonation, the rate limiter and
+  FlareSolverr all operate at or above HTTP. A ClientHello-level block
+  precedes all of them. Playwright is equally powerless. **A VPN is
+  the only fix** — don't go hunting for a code-side bypass next time
+  this signature appears.
+- **New `NonRetryableError` base in `src/utils/retry.py`.** Both
+  `retry_with_backoff` and `RetryableDownloader.download_with_retry`
+  now re-raise it instead of retrying. Same philosophy as the existing
+  "404 isn't transient" rule in the image downloader.
+- **New `NetworkBlockedError` in `src/utils/session.py`** (subclass of
+  the above). `SessionManager.get()` inspects failed requests for the
+  injected-packet signature and raises it with an actionable message
+  naming the host and pointing at the VPN. Detection matches all three
+  TLS stacks' wording for the same event — BoringSSL/curl_cffi
+  (`WRONG_VERSION_NUMBER`), OpenSSL (`wrong version number`) and
+  LibreSSL (`tlsv1 alert protocol version`) — because which one you
+  see depends on the client, not the cause.
+- **Per-host latch with a 60 s TTL** (`_blocked_hosts`). Once a host
+  blocks, further requests to it fail instantly — no socket, no
+  rate-limiter token, no FlareSolverr round-trip. The TTL is the
+  important part: it lets **turning the VPN on recover without
+  restarting the app**. A permanent latch (like comix's
+  `_FAST_PATH_BROKEN`) would be wrong here because the condition is
+  expected to change mid-session. `clear_blocked_hosts()` forces it.
+- **`ImageDownloader.download_image` bails on `NonRetryableError`.**
+  It previously would have burned 4 extension candidates × 4 attempts
+  per image against a wall — the worst case in the codebase, since a
+  blocked CDN would multiply that by every page in the chapter.
+- **Before:** raw `SSLError` traceback after ~6 s of pointless backoff,
+  with nothing telling the user their network was the problem.
+  **After:** immediate, plain-language error naming the host.
+- **Known unrelated bug spotted while verifying, NOT fixed** (needs a
+  call on filename impact): `ToonilyProvider._parse_chapters` derives
+  its sort key with `float(num_str)`, but toonily writes decimal
+  chapters with a hyphen in the URL (`chapter-55-5` = 55.5). `float()`
+  raises, the except-branch assigns `sort_key = -1.0`, and the chapter
+  sorts **before chapter 1** instead of between 55 and 56. It also
+  keeps `number = "55-5"`, so artifacts land as `Chapter_55-5.cbz`.
+  The library's `_norm_chapter_number` already treats `55.5` ⇄ `55-5`
+  as equal, so Update matching is unaffected — this is an ordering and
+  filename-cosmetics issue. The other Madara providers convert with
+  `.replace("-", ".")`; toonily is the odd one out.
+
+### 2026-05-28 — manga18fx.com provider (Madara-ish, plain HTTP)
+- New `Manga18fxProvider` for `manga18fx.com`. Server-rendered HTML,
+  HTTP 200 with no Cloudflare challenge, no auth, no FlareSolverr,
+  no Playwright — default `get_session()` passes straight through.
+  **Unrelated to `manhwa18.com` / `manhwa18.net`** despite the
+  similar name (different operator + markup); each provider's
+  `matches()` substring-checks its own exact domain so there's no
+  routing conflict.
+- **Madara-derived theme with two deviations from the stock wp-manga
+  markup** (so the `mangadistrict`/`webtoonscan` regexes don't apply
+  verbatim):
+    1. **Chapter list is NOT `<li class="wp-manga-chapter">`.** Chapters
+       are bare `<a class="chapter-name text-nowrap mycover"
+       href="/manga/<slug>/chapter-N">` anchors, newest-first (183 for
+       His Place). The two `id="btn-read-last"`/`btn-read-first` CTA
+       buttons use a different class (`c-btn`) so the `chapter-name`
+       anchor regex skips them — 185 raw `<a>` to chapter URLs but only
+       183 real chapters.
+    2. **Reader pages aren't scoped by `reading-content`** (that
+       container is absent; the theme uses `page-break` wrappers).
+       Pages are `<img class="loading pN" data-src="https://imgNN.
+       manga18fx.com/uploads/<id>/<ch>/<page>-<key>.jpg">`. Rather than
+       scope to a container, filter image URLs to those containing
+       `/uploads/` — related-manga cards at the page bottom use
+       `/webtoon/` and chrome uses `/images/`, so `/uploads/` isolates
+       exactly the chapter pages (62 for ch 1, verified equal to the
+       `class="loading"` count).
+- **Standard Madara summary sidebar** otherwise: title from
+  `<div class="post-title"><h1>` (og:title fallback strips the
+  `Read … Manhwa - Manga18fx` boilerplate); cover via `og:image`;
+  status + alternative names from `summary-heading`/`summary-content`
+  blocks via a shared `_summary_block_re(heading)` helper. Status
+  ("Ongoing") flows through the existing `normalize_status`. Alt names
+  are slash/comma-separated (`남자의 자취방 / 他的 房间 / That Man's
+  Epilepsy / …`) → split into `alt_titles[]`.
+- **Decimal chapters** use a hyphen in the URL (`chapter-176-5`);
+  `.replace("-", ".")` → `176.5`, same as the other Madara providers.
+- **Chapter number format note for Update:** filenames will be
+  `Chapter_176.5.cbz`; the library's `_norm_chapter_number` already
+  treats `176.5` ⇄ `176-5` ⇄ `176_5` as equal, so on-disk truth
+  matching works without extra handling.
+- `Chapter.volume` carries the absolute reader URL (per the
+  per-provider stash convention — toonily / manhwabuddy / manhwaread /
+  comix / mangadistrict all do this) so `get_chapter_images` works
+  after the GUI bridge's lossy chapter-dict serialisation.
+- `is_nsfw=True` hard-coded (site is explicitly 18+).
+- `image_referer = "https://manga18fx.com/"` set defensively; the CDN
+  (`imgNN.manga18fx.com`) actually serves without a Referer (verified).
+- **Verified live** end-to-end via the router: 183 chapters parsed,
+  ch 1 → 62 images, first/last image fetch HTTP 200 `image/jpeg`.
+  No diagnostic script added — nothing anti-bot to debug.
 
 ### 2026-05-20 — manhwa18.net provider (Inertia.js SPA)
 - New `Manhwa18NetProvider` for `www.manhwa18.net`. Despite the

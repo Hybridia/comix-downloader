@@ -91,7 +91,12 @@ _CHAPTER_NUM_FROM_TEXT_RE = re.compile(
 # manhwabuddy/manhwa18). Accept either to stay forward-compatible
 # with theme tweaks.
 _READER_IMG_RE = re.compile(
-    r'<img[^>]+?(?:data-src|src)="([^"]+\.(?:jpe?g|png|webp|gif))"',
+    # This site mixes ``.avif`` pages in among the jpgs (e.g. the
+    # ``[MOTION]`` motion-comic titles). Without ``avif`` here those
+    # pages are silently dropped — the chapter looks complete but is
+    # missing pages. The downloader transcodes AVIF → JPEG on save so
+    # the resulting CBZ stays readable in every reader.
+    r'<img[^>]+?(?:data-src|src)="([^"]+\.(?:jpe?g|png|webp|gif|avif))"',
     re.IGNORECASE,
 )
 _READER_BODY_RE = re.compile(

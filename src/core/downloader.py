@@ -16,7 +16,7 @@ from ..providers.base import Provider
 from ..formats.images import save_images, cleanup_images
 from ..formats.pdf import create_pdf
 from ..formats.cbz import create_cbz
-from ..utils.retry import RetryableDownloader
+from ..utils.retry import RetryableDownloader, NonRetryableError
 from ..utils.logger import get_logger
 from ..utils.session import get_session
 
@@ -38,6 +38,43 @@ def is_cancelled():
 def reset_cancel():
     """Clear the cancellation flag before starting a new session."""
     _cancel_event.clear()
+
+
+def _is_avif(data: bytes) -> bool:
+    """True if ``data`` looks like an AVIF (ISOBMFF ``ftyp`` + avif brand)."""
+    if len(data) < 12 or data[4:8] != b"ftyp":
+        return False
+    # Major brand is at [8:12]; compatible brands follow. AVIF stills use
+    # ``avif``; image sequences use ``avis``. Some encoders set a generic
+    # major brand (mif1/miaf) and list ``avif`` only as compatible, so
+    # scan a short window rather than only [8:12].
+    head = data[8:32]
+    return b"avif" in head or b"avis" in head
+
+
+def _maybe_transcode_avif(data: bytes) -> bytes:
+    """Transcode AVIF bytes to JPEG; pass everything else through untouched.
+
+    AVIF isn't universally supported by CBZ readers, so we normalise it to
+    JPEG (which every reader handles) at download time. Only AVIF payloads
+    are touched — jpg/png/webp/gif take the default path. If decoding fails
+    for any reason we return the original bytes rather than lose the page.
+    """
+    if not _is_avif(data):
+        return data
+    try:
+        import io
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            im.load()
+            rgb = im.convert("RGB")
+            out = io.BytesIO()
+            rgb.save(out, "JPEG", quality=92)
+            return out.getvalue()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"AVIF transcode failed ({e}); keeping original bytes")
+        return data
 
 
 class ImageDownloader:
@@ -106,7 +143,15 @@ class ImageDownloader:
                             return index, None, "Download cancelled"
                         if chunk:
                             content.extend(chunk)
-                    return index, bytes(content), None
+                    # AVIF → JPEG for reader compatibility; all other
+                    # formats pass straight through.
+                    return index, _maybe_transcode_avif(bytes(content)), None
+
+                except NonRetryableError as e:
+                    # A network-level block rejects every extension
+                    # candidate and every retry identically, so neither
+                    # loop can make progress. Surface it immediately.
+                    return index, None, str(e)
 
                 except Exception as e:
                     permanent_404 = False

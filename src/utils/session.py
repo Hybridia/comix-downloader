@@ -14,6 +14,14 @@ Three layered defenses against blocks, in order:
 3. **FlareSolverr fallback** — only invoked when curl_cffi still hits a
    real JS challenge. If the user isn't running FlareSolverr we log it
    at debug, not error.
+
+None of the three help against a **network-level block**, where a
+middlebox between us and the site kills the connection during the TLS
+handshake based on the hostname in the ClientHello. That happens before
+a single HTTP byte is exchanged, so impersonation, rate limiting and
+FlareSolverr are all equally powerless. `NetworkBlockedError` detects
+that case and fails fast with a message pointing at the real fix (a
+VPN), instead of spending the retry budget on a wall.
 """
 
 import time
@@ -22,6 +30,7 @@ import threading
 from urllib.parse import urlparse
 from typing import Any
 from .logger import get_logger
+from .retry import NonRetryableError
 
 logger = get_logger(__name__)
 
@@ -142,6 +151,58 @@ def _hostname(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Network-level (SNI) block detection
+# ---------------------------------------------------------------------------
+
+
+# A filtering middlebox that matches the hostname in the ClientHello kills
+# the connection by injecting a bogus packet, so the TLS stack reads
+# garbage where a ServerHello belongs. Each stack words that differently:
+#
+#   BoringSSL (curl_cffi) : "...OPENSSL_internal:WRONG_VERSION_NUMBER"
+#   OpenSSL   (openssl s_client) : "wrong version number"
+#   LibreSSL  (system requests)  : "tlsv1 alert protocol version"
+#
+# All three mean the same thing and none of them is transient.
+_TLS_BLOCK_MARKERS = (
+    "wrong_version_number",
+    "wrong version number",
+    "alert protocol version",
+)
+
+# How long a host stays latched as blocked before we probe it again.
+# Short enough that turning a VPN on self-heals without restarting the
+# app, long enough that a 200-chapter run doesn't retry every request.
+_BLOCK_LATCH_TTL = 60.0
+
+
+def _looks_like_tls_block(exc: BaseException) -> bool:
+    """True when an exception carries the injected-packet signature."""
+    text = str(exc).lower()
+    return any(marker in text for marker in _TLS_BLOCK_MARKERS)
+
+
+class NetworkBlockedError(NonRetryableError):
+    """
+    Raised when a host is unreachable at the TLS layer, before HTTP.
+
+    This is deliberately not a subclass of the HTTP client's error types:
+    it is not a site problem or an app problem, and no amount of
+    impersonation, backoff or FlareSolverr will change the outcome.
+    """
+
+    def __init__(self, host: str, original: BaseException | None = None):
+        self.host = host
+        self.original = original
+        super().__init__(
+            f"{host} appears to be blocked on this network — the TLS "
+            f"handshake was rejected before any request was sent. This is "
+            f"a network-level block (ISP or router), not a problem with "
+            f"the site or the downloader. Connect a VPN and try again."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Session manager
 # ---------------------------------------------------------------------------
 
@@ -178,6 +239,8 @@ class SessionManager:
 
         self._lock = threading.Lock()
         self._fs_warned = False  # don't spam if FlareSolverr is offline
+        # host -> monotonic timestamp of the last observed TLS-level block
+        self._blocked_hosts: dict[str, float] = {}
         self._session = self._make_session()
 
         if self.use_curl_cffi:
@@ -228,6 +291,11 @@ class SessionManager:
         host = _hostname(url)
         limiter = self._rate.for_host(host)
 
+        # A host we've just seen blocked at the TLS layer fails immediately —
+        # no socket, no rate-limiter token, no FlareSolverr round-trip.
+        if self._is_latched_blocked(host):
+            raise NetworkBlockedError(host)
+
         if force_flare:
             with self._lock:
                 logger.info(f"Forcing FlareSolverr bypass for {url}")
@@ -240,6 +308,8 @@ class SessionManager:
         try:
             response = self._raw_get(url, **kwargs)
         except Exception as e:
+            if _looks_like_tls_block(e):
+                raise self._latch_blocked(host, e) from e
             logger.error(f"Request failed: {e}")
             raise
 
@@ -303,6 +373,40 @@ class SessionManager:
         """Plain GET against the underlying session, with no policy."""
         kwargs.setdefault("verify", self.verify_ssl)
         return self._session.get(url, **kwargs)
+
+    # -- network-block latch ------------------------------------------
+
+    def _is_latched_blocked(self, host: str) -> bool:
+        """True while `host` is inside its post-block cooldown."""
+        with self._lock:
+            seen_at = self._blocked_hosts.get(host)
+            if seen_at is None:
+                return False
+            if time.monotonic() - seen_at < _BLOCK_LATCH_TTL:
+                return True
+            # Cooldown elapsed — let one real attempt through so that
+            # bringing a VPN up recovers without restarting the app.
+            del self._blocked_hosts[host]
+            return False
+
+    def _latch_blocked(self, host: str, original: BaseException) -> "NetworkBlockedError":
+        """Record a TLS-level block for `host` and build the error to raise."""
+        with self._lock:
+            first = host not in self._blocked_hosts
+            self._blocked_hosts[host] = time.monotonic()
+        error = NetworkBlockedError(host, original)
+        # Only the first hit is loud; a bulk run would otherwise print this
+        # once per chapter.
+        if first:
+            logger.error(str(error))
+        else:
+            logger.debug(f"{host} still blocked at the TLS layer")
+        return error
+
+    def clear_blocked_hosts(self) -> None:
+        """Forget every latched block (e.g. after connecting a VPN)."""
+        with self._lock:
+            self._blocked_hosts.clear()
 
     def _solve_cloudflare(self, target_url: str) -> bool:
         """Use FlareSolverr to acquire clearance cookies."""

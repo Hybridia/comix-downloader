@@ -16,6 +16,7 @@ from .manhwabuddy import ManhwabuddyProvider
 from .manhwa18 import Manhwa18Provider
 from .manhwa18net import Manhwa18NetProvider
 from .mangadistrict import MangadistrictProvider
+from .manga18fx import Manga18fxProvider
 from .webtoonscan import WebtoonscanProvider
 from .toomics import ToomicsProvider
 from .mangafire import MangafireProvider
@@ -34,6 +35,7 @@ _REGISTRY: list[Type[Provider]] = [
     Manhwa18Provider,
     Manhwa18NetProvider,
     MangadistrictProvider,
+    Manga18fxProvider,
     WebtoonscanProvider,
     ToomicsProvider,
     MangafireProvider,
