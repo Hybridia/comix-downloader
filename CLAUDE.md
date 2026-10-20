@@ -581,18 +581,16 @@ Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
 ### 2026-08-09 — fail fast on network-level (SNI) blocks
-- **Symptom:** toonily stopped fetching entirely. Root cause was *not*
-  in this repo — an on-path middlebox (ISP-side) kills the TLS
-  handshake based on the hostname in the ClientHello, so the failure
-  lands before a single HTTP byte moves. Diagnosis that nails it:
-  sending SNI `toonily.com` to an **unrelated** IP (example.com's)
-  fails identically, while SNI `manga18fx.com` to *toonily's own* IP
-  succeeds. DNS is clean on every resolver. Confirmed fixed by a VPN.
-- **Blocked from the user's home connection:** `toonily.com`,
-  `mangadistrict.com`, `hitomi.la`. Every other domain in the provider
-  matrix is reachable. Note the image CDN `data.tnlycdn.com` is *not*
-  blocked — only the site domain — but that doesn't rescue a download,
-  since the reader page must be fetched first to learn the image URLs.
+- **Symptom:** a provider stops fetching entirely on some networks.
+  Root cause is *not* in this repo — an on-path middlebox (ISP or
+  network filter) kills the TLS handshake based on the hostname in the
+  ClientHello, so the failure lands before a single HTTP byte moves.
+  Diagnosis that nails it: sending the blocked SNI to an **unrelated**
+  IP (example.com's) fails identically, while an unblocked SNI to the
+  blocked site's own IP succeeds. DNS is clean. Fixed by a VPN.
+- **Partial blocks are possible.** A filter may block a site domain
+  but not its image CDN — that doesn't rescue a download, since the
+  reader page must be fetched first to learn the image URLs.
 - **None of our three defenses can help here** and it's worth
   internalising why: curl_cffi impersonation, the rate limiter and
   FlareSolverr all operate at or above HTTP. A ClientHello-level block
