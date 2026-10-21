@@ -22,7 +22,6 @@ emits ``noUpdatesAvailable``.
 """
 
 import os
-import re
 import sys
 import subprocess
 from pathlib import Path
@@ -33,131 +32,27 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
-# ---- On-disk chapter discovery -----------------------------------------
-#
-# These helpers exist because the library.json "chapters" dict is
-# advisory only — what's actually ON DISK in the user's iCloud (or
-# wherever ``download_path/folder`` points) is the ground truth for
-# what they have. The Update flow uses this to compute the diff
-# against a site's chapter list, with format normalisation so that
-# ``Chapter_62.5.cbz`` (iCloud's dot convention) and ``chapter-62-5``
-# (Madara's hyphen convention) count as the same chapter.
-
-# Match "Chapter 62", "Chapter_62", "ch 62.5", "Chapter_68_1.cbz", "Chapter_82-5",
-# "Chapter 4.1". The fraction separator can be ``.``, ``-``, or ``_`` —
-# users encode sub-chapters all three ways in filenames (``68.5`` /
-# ``68-5`` / ``68_5``). The normaliser below collapses them.
-_FILENAME_CHAPTER_RE = re.compile(
-    r"(?:chapter|chap|episode|ep|ch)[_\s\.\-]*(\d+(?:[-._]\d+)?)",
-    re.IGNORECASE,
+# On-disk chapter discovery lives in ``src/utils/chapters.py`` (shared
+# with the update checker + source detection). The underscore aliases
+# are kept because ``scripts/missing_chapters.py`` and friends import
+# them from here.
+from src.utils.chapters import (  # noqa: E402
+    FILENAME_CHAPTER_RE as _FILENAME_CHAPTER_RE,
+    chapter_numbers_on_disk as _chapter_numbers_on_disk,
+    max_chapter as _max_chapter,
+    norm_chapter_number as _norm_chapter_number,
 )
 
 
-def _norm_chapter_number(n: str) -> str:
-    """
-    Canonicalise a chapter-number string for cross-site comparison.
+from src.utils.update_check import (  # noqa: E402
+    chapter_to_dict as _chapter_to_dict,
+    manga_info_to_dict as _manga_info_to_dict,
+)
 
-    - Collapses fraction separators (``62-5`` ⇄ ``62.5`` ⇄ ``62_5``)
-      so the same chapter compares equal regardless of which site's
-      or filename's convention it came from. Three separators are in
-      common use:
-        * dot — comix and most providers' canonical
-        * hyphen — Madara URL slugs (``chapter-62-5``)
-        * underscore — some iCloud filenames (``Chapter_62_5.cbz``)
-          where the user replaced reserved chars manually
-    - Strips leading zeros from the integer part (``007`` → ``7``)
-      so padded filenames compare equal to unpadded site numbers.
-    """
-    s = str(n).replace("-", ".").replace("_", ".")
-    if "." in s:
-        head, tail = s.split(".", 1)
-        try:
-            head = str(int(head))
-        except ValueError:
-            pass
-        return f"{head}.{tail}" if tail else head
-    try:
-        return str(int(s))
-    except ValueError:
-        return s
-
-
-def _chapter_numbers_on_disk(folder: Path) -> set[str]:
-    """
-    Return the set of normalised chapter numbers found as ``.cbz``
-    files directly under ``folder``. Empty set if the folder doesn't
-    exist or contains nothing recognisable.
-
-    Doesn't recurse — chapters are flat in every format we support.
-    """
-    out: set[str] = set()
-    try:
-        if not folder.is_dir():
-            return out
-    except OSError:
-        return out
-    try:
-        for entry in folder.iterdir():
-            if not entry.is_file():
-                continue
-            if entry.suffix.lower() != ".cbz":
-                continue
-            m = _FILENAME_CHAPTER_RE.search(entry.stem)
-            if m:
-                out.add(_norm_chapter_number(m.group(1)))
-    except OSError:
-        pass
-    return out
-
-
-def _max_chapter(numbers: set[str]) -> float:
-    """Largest numerically-parseable chapter number, or -1 if none."""
-    best = -1.0
-    for n in numbers:
-        try:
-            best = max(best, float(n))
-        except ValueError:
-            continue
-    return best
-
-
-def _manga_info_to_dict(manga, manga_code: str) -> dict:
-    """Mirror MangaBridge's manga_dict shape so DownloadBridge
-    accepts it untouched."""
-    return {
-        "manga_id": manga.manga_id,
-        "hash_id": manga.hash_id,
-        "title": manga.title,
-        "alt_titles": list(manga.alt_titles or []),
-        "manga_type": manga.manga_type or "Unknown",
-        "status": manga.status or "Unknown",
-        "poster_url": manga.poster_url or "",
-        "year": manga.year or 0,
-        "rated_avg": manga.rated_avg or 0,
-        "follows_total": manga.follows_total or 0,
-        "is_nsfw": bool(manga.is_nsfw),
-        "description": manga.description or "",
-        "latest_chapter": manga.latest_chapter or "",
-        "original_language": manga.original_language or "",
-        "manga_code": manga_code,
-        "source": manga.source,
-        "source_url": manga.source_url or "",
-        "artists": list(manga.artists or []),
-        "tags": list(manga.tags or []),
-    }
-
-
-def _chapter_to_dict(ch) -> dict:
-    return {
-        "chapter_id": ch.chapter_id,
-        "number": str(ch.number),
-        "title": ch.title or "",
-        "volume": ch.volume or "",
-        "group_name": ch.group_name or "Unknown",
-        "pages_count": ch.pages_count,
-        "image_urls": list(ch.image_urls or []),
-        "selected": True,
-    }
+# Results of the last "Check for Updates" run, kept so the review list
+# survives an app restart (a full-library check can take a while).
+# Gitignored — it's a list of the user's series.
+_PENDING_PATH = Path(__file__).resolve().parents[2] / "pending_updates.json"
 
 
 class RepackWorker(QThread):
@@ -492,6 +387,45 @@ class UpdateProbeWorker(QThread):
         return out
 
 
+class UpdateCheckWorker(QThread):
+    """
+    Runs ``check_entry`` over a list of library entries, one at a time
+    (politeness — and Playwright providers can't run in parallel).
+    Never downloads: results go back to the bridge for the user to
+    review in the Updates view.
+    """
+
+    # done (1-based), total, library_url, title
+    progress = pyqtSignal(int, int, str, str)
+    # library_url, result dict
+    resultReady = pyqtSignal(str, dict)
+
+    def __init__(self, urls: list[str], parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.urls = urls
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        from src.utils.library import shared as _library
+        from src.utils.update_check import check_entry
+
+        total = len(self.urls)
+        for i, url in enumerate(self.urls):
+            if self._cancel:
+                break
+            entry = _library().get_entry(url) or {}
+            self.progress.emit(i + 1, total, url, entry.get("title") or url)
+            try:
+                result = check_entry(entry, cancelled=lambda: self._cancel)
+            except Exception as exc:
+                result = {"library_url": url, "title": entry.get("title") or url,
+                          "sources": [], "recommended": -1, "error": str(exc)}
+            self.resultReady.emit(url, result)
+
+
 class LibraryBridge(QObject):
     """QObject exposed to QML as ``LibraryBridge``."""
 
@@ -515,6 +449,12 @@ class LibraryBridge(QObject):
     statusCheckAllStarted = pyqtSignal(int)              # total
     statusCheckAllProgress = pyqtSignal(int, int, str, str)  # done, total, url, title
     statusCheckAllFinished = pyqtSignal(int, int, int, int)  # completed, ongoing, unknown, failed
+    # "Check for Updates" — probe-only; results wait in the Updates
+    # view until the user approves them (``applyUpdates``).
+    updateCheckStarted = pyqtSignal(int, int)            # total, skipped_completed
+    updateCheckProgress = pyqtSignal(int, int, str, str)  # done, total, url, title
+    updateCheckFinished = pyqtSignal(int, int, int, int, int)  # with_updates, up_to_date, failed, skipped_completed, no_files
+    pendingUpdatesChanged = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -540,6 +480,14 @@ class LibraryBridge(QObject):
         self._status_stats: list[int] = [0, 0, 0, 0]
         self._status_cancel: bool = False
         self._status_workers: list[StatusCheckWorker] = []
+        # "Check for Updates" state. ``_pending`` maps library_url →
+        # check result (only entries that HAVE updates are kept).
+        self._check_worker: Optional[UpdateCheckWorker] = None
+        # Tally: [with_updates, up_to_date, failed, skipped_completed, no_files]
+        self._check_stats: list[int] = [0, 0, 0, 0, 0]
+        self._pending: dict[str, dict] = {}
+        self._pending_checked_at: str = ""
+        self._load_pending()
 
     def attach_download_bridge(self, download_bridge) -> None:
         """Wire the DownloadBridge so update probes can launch downloads."""
@@ -863,6 +811,214 @@ class LibraryBridge(QObject):
         self._bulk_idx += 1
         self._run_next_bulk()
 
+    # --- Check for Updates (review before download) -----------------
+
+    @pyqtSlot()
+    def checkForUpdates(self) -> None:
+        """
+        Probe every followed series for new chapters WITHOUT
+        downloading. Results land in the Updates view; nothing is
+        fetched until ``applyUpdates``. Completed / cancelled series are
+        skipped, same as Update All.
+        """
+        if self._check_worker is not None:
+            return
+
+        from src.utils.library import shared as _library, is_finished_status
+
+        urls, skipped = [], 0
+        entries = sorted(_library().list_entries(),
+                         key=lambda e: (e.get("title") or "").lower())
+        for e in entries:
+            url = e.get("source_url")
+            if not url:
+                continue
+            if is_finished_status(e.get("status") or ""):
+                skipped += 1
+                continue
+            urls.append(url)
+
+        self._start_check(urls, skipped)
+
+    @pyqtSlot("QVariant")
+    def checkForUpdatesFor(self, urls) -> None:
+        """
+        Check only the series the user ticked in the Library. Unlike
+        ``checkForUpdates`` this does NOT skip completed series —
+        ticking one is an explicit request to look anyway.
+        """
+        if self._check_worker is not None:
+            return
+        if hasattr(urls, "toVariant"):
+            urls = urls.toVariant()
+        from src.utils.library import shared as _library
+        wanted = {str(u) for u in urls or [] if u}
+        ordered = [
+            e["source_url"]
+            for e in sorted(_library().list_entries(),
+                            key=lambda e: (e.get("title") or "").lower())
+            if e.get("source_url") in wanted
+        ]
+        self._start_check(ordered, 0)
+
+    def _start_check(self, urls: list[str], skipped: int) -> None:
+        self._check_stats = [0, 0, 0, skipped, 0]
+        self.updateCheckStarted.emit(len(urls), skipped)
+        if not urls:
+            self.updateCheckFinished.emit(*self._check_stats)
+            return
+
+        worker = UpdateCheckWorker(urls, self)
+        worker.progress.connect(self.updateCheckProgress.emit)
+        worker.resultReady.connect(self._on_check_result)
+        worker.finished.connect(self._on_check_finished)
+        self._check_worker = worker
+        worker.start()
+
+    @pyqtSlot()
+    def cancelCheckForUpdates(self) -> None:
+        """Stop after the series currently being checked."""
+        if self._check_worker is not None:
+            self._check_worker.cancel()
+
+    @pyqtSlot(result=bool)
+    def isCheckingForUpdates(self) -> bool:
+        return self._check_worker is not None
+
+    @pyqtSlot(result="QVariant")
+    def pendingUpdates(self) -> list:
+        """
+        Series with new chapters, for the review list. The per-source
+        ``manga`` dicts stay Python-side (QML never needs them).
+        """
+        out = []
+        for r in sorted(self._pending.values(),
+                        key=lambda r: (r.get("title") or "").lower()):
+            light = dict(r)
+            light["sources"] = [
+                {k: v for k, v in src.items() if k != "manga"}
+                for src in r.get("sources") or []
+            ]
+            out.append(light)
+        return out
+
+    @pyqtSlot(result=str)
+    def pendingCheckedAt(self) -> str:
+        return self._pending_checked_at
+
+    @pyqtSlot(str)
+    def dismissUpdate(self, library_url: str) -> None:
+        """Drop a series from the review list (until the next check)."""
+        if self._pending.pop(library_url, None) is not None:
+            self._save_pending()
+            self.pendingUpdatesChanged.emit()
+
+    @pyqtSlot("QVariant", result=int)
+    def applyUpdates(self, selection) -> int:
+        """
+        Download what the user approved. ``selection`` is a list of
+        ``{library_url, source_index, numbers: [normalised numbers]}``.
+        Each series becomes one normal download job (rate limiter,
+        failure log, library recording all apply), filed under the
+        existing library entry even when the chosen site is an
+        alternative. Returns the number of chapters queued.
+        """
+        if hasattr(selection, "toVariant"):
+            selection = selection.toVariant()
+        if self._download_bridge is None:
+            return 0
+
+        from src.utils.chapters import chapter_numbers_on_disk
+        from src.utils.library import shared as _library
+        from src.utils.update_check import entry_folder
+
+        queued = 0
+        for sel in selection or []:
+            url = sel.get("library_url") or ""
+            result = self._pending.get(url)
+            if not result:
+                continue
+            sources = result.get("sources") or []
+            idx = int(sel.get("source_index", -1))
+            if not (0 <= idx < len(sources)) or not sources[idx].get("manga"):
+                continue
+            src = sources[idx]
+            wanted = {str(n) for n in sel.get("numbers") or []}
+
+            # Re-read disk: chapters moved into iCloud since the check
+            # shouldn't be fetched again.
+            entry = _library().get_entry(url) or {}
+            folder = entry_folder(entry)
+            have = chapter_numbers_on_disk(folder) if folder else set()
+
+            chapters = [
+                c for c in (src.get("newer") or []) + (src.get("gaps") or [])
+                if c.get("norm") in wanted and c.get("norm") not in have
+            ]
+            if not chapters:
+                continue
+
+            manga_dict = dict(src["manga"], library_url=url)
+            fmt = entry.get("output_format") or "cbz"
+            self.updateStarted.emit(url, result.get("title") or "", len(chapters))
+            self._download_bridge.startDownload(manga_dict, chapters, fmt, "Any")
+            queued += len(chapters)
+            self._pending.pop(url, None)
+
+        if queued:
+            self._save_pending()
+            self.pendingUpdatesChanged.emit()
+        return queued
+
+    def _on_check_result(self, url: str, result: dict) -> None:
+        from src.utils.update_check import has_updates
+
+        if has_updates(result):
+            self._check_stats[0] += 1
+            self._pending[url] = result
+        else:
+            if result.get("error"):
+                self._check_stats[2] += 1
+            elif not result.get("on_disk_count"):
+                # No parseable CBZ chapters (folder gone, image folders,
+                # per-volume files) — nothing to diff against.
+                self._check_stats[4] += 1
+            else:
+                self._check_stats[1] += 1
+            self._pending.pop(url, None)
+        self._pending_checked_at = result.get("checked_at") or self._pending_checked_at
+        self._save_pending()
+        self.pendingUpdatesChanged.emit()
+        # Status badges / last-checked stamps may have moved.
+        self.entriesChanged.emit()
+
+    def _on_check_finished(self) -> None:
+        worker, self._check_worker = self._check_worker, None
+        if worker is not None:
+            worker.deleteLater()
+        self.updateCheckFinished.emit(*self._check_stats)
+
+    def _load_pending(self) -> None:
+        import json
+        try:
+            raw = json.loads(_PENDING_PATH.read_text(encoding="utf-8"))
+            self._pending = dict(raw.get("items") or {})
+            self._pending_checked_at = raw.get("checked_at") or ""
+        except (OSError, ValueError, AttributeError):
+            self._pending, self._pending_checked_at = {}, ""
+
+    def _save_pending(self) -> None:
+        import json
+        try:
+            tmp = _PENDING_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(
+                {"checked_at": self._pending_checked_at, "items": self._pending},
+                indent=1, ensure_ascii=False,
+            ), encoding="utf-8")
+            os.replace(tmp, _PENDING_PATH)
+        except OSError:
+            pass
+
     # --- Internal ----------------------------------------------------
 
     def _reap(self, worker: UpdateProbeWorker) -> None:
@@ -910,5 +1066,8 @@ class LibraryBridge(QObject):
         entry = _library().get_entry(source_url) or {}
         fmt = entry.get("output_format") or "cbz"
 
+        # File the chapters under THIS entry even when the probe fell
+        # back to an alternative site.
+        manga_dict = dict(manga_dict, library_url=source_url)
         self.updateStarted.emit(source_url, title, len(new_chapters))
         self._download_bridge.startDownload(manga_dict, new_chapters, fmt, "Any")

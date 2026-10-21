@@ -168,6 +168,7 @@ class DownloadWorker(QThread):
                             self.config.output_format.value,
                             self.config.download_path,
                             manga_code=self.manga_dict.get("manga_code"),
+                            library_url=self.manga_dict.get("library_url") or None,
                         )
                     except Exception as exc:
                         from src.utils.logger import get_logger
@@ -243,15 +244,19 @@ class DownloadWorker(QThread):
 
             # Make sure the library has an entry for this manga before any
             # chapter completes, so the Library tab shows it even if every
-            # chapter happens to fail.
+            # chapter happens to fail. Skipped for library updates
+            # (``library_url`` set): the entry already exists, and
+            # upserting under an alternative site's URL would split the
+            # series into a second entry.
             try:
                 from src.utils.library import shared as _library
-                _library().upsert_manga(
-                    manga,
-                    self.config.output_format.value,
-                    self.config.download_path,
-                    manga_code=self.manga_dict.get("manga_code"),
-                )
+                if not self.manga_dict.get("library_url"):
+                    _library().upsert_manga(
+                        manga,
+                        self.config.output_format.value,
+                        self.config.download_path,
+                        manga_code=self.manga_dict.get("manga_code"),
+                    )
             except Exception as exc:
                 from src.utils.logger import get_logger
                 get_logger(__name__).warning(

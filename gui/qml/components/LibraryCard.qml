@@ -8,6 +8,8 @@ Rectangle {
     property var entry: null
     property string statusMessage: ""
     property bool busy: false
+    // Ticked for "Check selected" (Library toolbar → Updates view).
+    property bool selected: false
 
     signal updateRequested()
     signal removeRequested()
@@ -15,6 +17,7 @@ Rectangle {
     signal openWebsiteRequested()
     signal openAlternativeRequested(string url)
     signal convertToCbzRequested()
+    signal selectToggled()
     // statusKey is one of: "completed" | "cancelled" | "ongoing" |
     // "hiatus" | "" (clear/auto). manual=true flags as user override
     // so the next probe won't overwrite it.
@@ -68,7 +71,7 @@ Rectangle {
 
     color: bgCard
     radius: 10
-    border.color: "#2A2A33"
+    border.color: selected ? Qt.darker(accentPrimary, 1.4) : "#2A2A33"
     border.width: 1
 
     Layout.fillWidth: true
@@ -128,6 +131,38 @@ Rectangle {
                 font.pixelSize: 28
                 color: textTertiary
                 visible: !entry || !entry.poster_url
+            }
+
+            // Selection checkbox — always visible (subtle when off) so
+            // it's discoverable; toggles inclusion in "Check selected".
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.margins: 5
+                width: 22; height: 22; radius: 5
+                color: root.selected ? accentPrimary
+                       : (selectMa.containsMouse ? "#CC1C1C24" : "#991C1C24")
+                border.width: 1
+                border.color: root.selected ? accentPrimary : "#8B8B99"
+                Text {
+                    anchors.centerIn: parent
+                    visible: root.selected
+                    text: "✓"
+                    color: "#1A1A1F"
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
+                }
+                MouseArea {
+                    id: selectMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.selectToggled()
+                }
+                ToolTip.visible: selectMa.containsMouse
+                ToolTip.delay: 600
+                ToolTip.text: root.selected ? "Selected for “Check selected”"
+                                            : "Select to check this series for updates"
             }
         }
 

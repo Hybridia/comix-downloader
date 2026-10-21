@@ -6,6 +6,9 @@ import "../components"
 Item {
     id: libraryView
 
+    // Ask main.qml to show the Updates view (after starting a check).
+    signal updatesRequested()
+
     readonly property color bgCard: "#1C1C24"
     readonly property color bgElevated: "#252530"
     readonly property color textPrimary: "#F5F5F0"
@@ -36,6 +39,28 @@ Item {
     // Useful if you want to focus on serial manhwa you're following
     // and not get distracted by doujinshi one-shots.
     property bool hideHentai: false
+
+    // Manual selection for "Check selected" — url → true. Bumping
+    // selVersion re-evaluates bindings (JS object mutation doesn't).
+    property var selectedUrls: ({})
+    property int selVersion: 0
+    readonly property int selectedCount:
+        (selVersion, Object.keys(selectedUrls).length)
+
+    function toggleSelected(url) {
+        if (selectedUrls[url]) delete selectedUrls[url]
+        else selectedUrls[url] = true
+        selVersion++
+    }
+    function selectAllVisible() {
+        for (var i = 0; i < visibleEntries.length; i++)
+            selectedUrls[visibleEntries[i].source_url] = true
+        selVersion++
+    }
+    function clearSelection() {
+        selectedUrls = {}
+        selVersion++
+    }
 
     // Bulk "Update All" state.
     property bool bulkBusy: false
@@ -246,49 +271,50 @@ Item {
                               "Does NOT download any chapters — safe to run any time."
             }
 
-            // UPDATE ALL — sequentially probes every entry for new
-            // chapters AND downloads them. While the bulk run is in
-            // flight the button becomes a Cancel button. Tooltip
-            // spells out the side-effect so the button isn't a
-            // surprise.
+            // CHECK FOR UPDATES — probes series for new chapters and
+            // lists them in the Updates view for approval. With cards
+            // ticked it checks just those (completed ones included —
+            // ticking is an explicit request); otherwise every ongoing
+            // series. Replaces the old "Update All" button, which
+            // downloaded everything it found without asking.
             Button {
-                id: updateAllBtn
+                id: checkUpdatesBtn
 
-                ToolTip.visible: hovered && !libraryView.bulkBusy
+                ToolTip.visible: hovered
                 ToolTip.delay: 600
-                ToolTip.text: "Check every entry for new chapters AND download them.\n" +
-                              "Completed / cancelled series are skipped automatically.\n" +
-                              "Use \"Check Status\" instead if you only want to refresh badges."
+                ToolTip.text: libraryView.selectedCount > 0
+                    ? "Look for new chapters on the ticked series only.\n" +
+                      "You review and approve them in Updates before anything downloads."
+                    : "Look for new chapters on every ongoing series.\n" +
+                      "Tick series (checkbox on the cover) to check only those.\n" +
+                      "You review and approve them in Updates before anything downloads."
                 Layout.preferredHeight: 34
-                text: libraryView.bulkBusy
-                      ? ("Cancel (" + libraryView.bulkDone + " / "
-                         + libraryView.bulkTotal + ")")
-                      : "↻ Update All"
-                enabled: (entries.length > 0 || libraryView.bulkBusy)
-                         && !libraryView.statusBusy
+                text: libraryView.selectedCount > 0
+                      ? "🔔 Check " + libraryView.selectedCount + " selected"
+                      : "🔔 Check for Updates"
+                enabled: entries.length > 0 && !libraryView.statusBusy
                 onClicked: {
-                    if (libraryView.bulkBusy) {
-                        LibraryBridge.cancelUpdateAll()
-                    } else {
-                        LibraryBridge.updateAll()
+                    if (!LibraryBridge.isCheckingForUpdates()) {
+                        if (libraryView.selectedCount > 0) {
+                            LibraryBridge.checkForUpdatesFor(Object.keys(libraryView.selectedUrls))
+                            libraryView.clearSelection()
+                        } else {
+                            LibraryBridge.checkForUpdates()
+                        }
                     }
+                    libraryView.updatesRequested()
                 }
 
                 background: Rectangle {
                     radius: 6
                     color: parent.enabled
-                           ? (libraryView.bulkBusy
-                              ? (parent.hovered ? "#C45050" : "#A03A3A")
-                              : (parent.hovered ? Qt.lighter(accentPrimary, 1.1)
-                                                 : accentPrimary))
+                           ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
                            : "#3A3A45"
                     Behavior on color { ColorAnimation { duration: 120 } }
                 }
                 contentItem: Text {
                     text: parent.text
-                    color: parent.enabled
-                           ? (libraryView.bulkBusy ? "#FFFFFF" : "#1A1A1F")
-                           : textTertiary
+                    color: parent.enabled ? "#1A1A1F" : textTertiary
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
@@ -395,6 +421,22 @@ Item {
                 }
             }
 
+            // Selection helpers for "Check selected".
+            Text {
+                text: libraryView.selectedCount > 0
+                      ? libraryView.selectedCount + " selected · Clear"
+                      : "Select all shown"
+                font.pixelSize: 12
+                color: accentPrimary
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: libraryView.selectedCount > 0
+                               ? libraryView.clearSelection()
+                               : libraryView.selectAllVisible()
+                }
+            }
+
             // Sort label
             Text {
                 text: "Sort by"
@@ -488,7 +530,7 @@ Item {
                     item.label = "Hide completed"
                     item.filterKey = "hide_completed"
                     item.tipText = "Hide series the site says are completed or cancelled.\n" +
-                                   "Update All already skips these automatically."
+                                   "Check for Updates already skips these automatically."
                 }
             }
 
@@ -819,6 +861,9 @@ Item {
                         entry: libraryView.entryFor(model.source_url)
                         statusMessage: libraryView.statusByUrl[model.source_url] || ""
                         busy: libraryView.busyUrl === model.source_url
+                        selected: (libraryView.selVersion,
+                                   !!libraryView.selectedUrls[model.source_url])
+                        onSelectToggled: libraryView.toggleSelected(model.source_url)
 
                         onUpdateRequested: {
                             libraryView.busyUrl = model.source_url

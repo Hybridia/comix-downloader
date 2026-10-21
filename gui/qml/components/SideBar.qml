@@ -8,9 +8,12 @@ Rectangle {
     signal browseClicked()
     signal downloadsClicked()
     signal libraryClicked()
+    signal updatesClicked()
     signal settingsClicked()
 
-    property int activeTab: 0 // 0: Browse, 1: Downloads, 2: Library
+    property int activeTab: 0 // 0: Browse, 1: Downloads, 2: Library, 3: Updates
+    // Series waiting for approval in the Updates view (badge).
+    property int updatesCount: 0
     
     // Theme colors (mirroring Theme.qml for consistency)
     readonly property color bgDeep: "#0A0A0C"
@@ -73,6 +76,14 @@ Rectangle {
                 isActive: root.activeTab === 2
                 onClicked: { root.activeTab = 2; root.libraryClicked() }
             }
+
+            NavButton {
+                icon: "🔔"
+                label: "Updates"
+                badge: root.updatesCount
+                isActive: root.activeTab === 3
+                onClicked: { root.activeTab = 3; root.updatesClicked() }
+            }
         }
         
         Item { Layout.fillHeight: true }
@@ -93,6 +104,7 @@ Rectangle {
         property string icon: ""
         property string label: ""
         property bool isActive: false
+        property int badge: 0
         signal clicked()
         
         Layout.fillWidth: true
@@ -119,6 +131,25 @@ Rectangle {
                 font.pixelSize: 14
                 font.weight: btn.isActive ? Font.DemiBold : Font.Normal
                 color: btn.isActive ? textPrimary : textSecondary
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Rectangle {
+                visible: btn.badge > 0
+                Layout.rightMargin: 12
+                Layout.preferredHeight: 20
+                Layout.preferredWidth: Math.max(20, badgeText.implicitWidth + 12)
+                radius: 10
+                color: accentPrimary
+                Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: btn.badge
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                    color: "#1A1A1F"
+                }
             }
         }
         

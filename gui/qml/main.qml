@@ -36,6 +36,7 @@ ApplicationWindow {
             onBrowseClicked: viewStack.currentIndex = 0
             onDownloadsClicked: viewStack.currentIndex = 1
             onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh() }
+            onUpdatesClicked: { viewStack.currentIndex = 3; updatesView.refresh() }
             onSettingsClicked: settingsDrawer.isOpen = true
         }
         
@@ -74,6 +75,15 @@ ApplicationWindow {
 
                 LibraryView {
                     id: libraryView
+                    onUpdatesRequested: {
+                        sideBar.activeTab = 3
+                        viewStack.currentIndex = 3
+                        updatesView.refresh()
+                    }
+                }
+
+                UpdatesView {
+                    id: updatesView
                 }
             }
         }
@@ -87,6 +97,12 @@ ApplicationWindow {
     }
     
     // CONNECTIONS TO PYTHON BRIDGES
+    Connections {
+        target: LibraryBridge
+        function onPendingUpdatesChanged() {
+            sideBar.updatesCount = LibraryBridge.pendingUpdates().length
+        }
+    }
     Connections {
         target: MangaBridge
         function onMangaLoaded(info) { browseView.getMangaCard().manga = info }
@@ -131,7 +147,11 @@ ApplicationWindow {
     }
     
     // STARTUP ANIMATION
-    Component.onCompleted: { opacity = 0; startupAnimation.start() }
+    Component.onCompleted: {
+        sideBar.updatesCount = LibraryBridge.pendingUpdates().length
+        opacity = 0
+        startupAnimation.start()
+    }
     
     PropertyAnimation {
         id: startupAnimation

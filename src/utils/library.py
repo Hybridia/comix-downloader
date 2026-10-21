@@ -316,6 +316,18 @@ class LibraryManager:
             i = self._index(entry["source_url"]) if entry["source_url"] else -1
             if i >= 0:
                 existing = self._data["entries"][i]
+                # Keep where the chapters actually live. iCloud-imported
+                # entries point at the user's iCloud folder; a fresh
+                # download writes to ./downloads, but repointing the
+                # entry there would make Update read the wrong folder
+                # (and treat everything in iCloud as missing).
+                if existing.get("origin") == "icloud_import":
+                    entry["download_path"] = existing.get("download_path", download_path)
+                    entry["folder"] = existing.get("folder", entry["folder"])
+                # Carry over fields this method doesn't own
+                # (alternative_sources, origin, detected_sources, …) —
+                # the pipeline scripts and the update checker write them.
+                entry = {**existing, **entry}
                 # Preserve historical fields we don't overwrite.
                 entry["added_at"] = existing.get("added_at", now)
                 entry["last_checked_at"] = existing.get("last_checked_at")
@@ -382,16 +394,30 @@ class LibraryManager:
         output_format: str,
         download_path: str,
         manga_code: Optional[str] = None,
+        library_url: Optional[str] = None,
     ) -> None:
-        """Mark a single chapter as successfully downloaded."""
+        """
+        Mark a single chapter as successfully downloaded.
+
+        ``library_url`` files the chapter under an existing entry
+        instead of the one keyed by ``manga.source_url`` — used when an
+        update pulls chapters from an alternative site, so the series
+        stays one library entry rather than spawning a second one per
+        site.
+        """
         with _lock:
             self._reload_if_changed()
-            url = _normalize_url(getattr(manga, "source_url", "") or "")
-            if not url:
-                # No source URL means we can't dedupe; skip silently
-                # rather than spam library.json with anonymous entries.
-                return
-            i = self._index(url)
+            if library_url:
+                i = self._index(library_url)
+                if i < 0:
+                    return
+            else:
+                url = _normalize_url(getattr(manga, "source_url", "") or "")
+                if not url:
+                    # No source URL means we can't dedupe; skip silently
+                    # rather than spam library.json with anonymous entries.
+                    return
+                i = self._index(url)
             if i < 0:
                 self.upsert_manga(manga, output_format, download_path, manga_code)
                 i = self._index(url)
@@ -432,6 +458,24 @@ class LibraryManager:
                 entry["status_auto"] = normalized
                 if not entry.get("status_manual"):
                     entry["status"] = normalized
+            self._save()
+
+    def set_detected_sources(self, source_url: str, sources: list) -> None:
+        """
+        Store the sites this entry's chapters were found to come from
+        (``src/utils/provenance.py``). Only written when it changed, so
+        a routine update check doesn't bump library.json's mtime for
+        nothing.
+        """
+        with _lock:
+            self._reload_if_changed()
+            i = self._index(source_url)
+            if i < 0:
+                return
+            entry = self._data["entries"][i]
+            if entry.get("detected_sources") == sources:
+                return
+            entry["detected_sources"] = sources
             self._save()
 
     def set_output_format(self, source_url: str, fmt: str) -> bool:

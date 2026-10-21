@@ -57,9 +57,9 @@ comix/
 │   ├── bridge/                   Python ↔ QML bridges
 │   │   ├── manga_bridge.py       Fetches manga info via the provider router
 │   │   ├── download_bridge.py    Drives concurrent chapter downloads + per-run failure log + library recording
-│   │   ├── library_bridge.py     Library tab: list / update (diff vs remote) / remove / open folder
+│   │   ├── library_bridge.py     Library tab: list / update / remove / open folder + Check for Updates (review queue)
 │   │   └── settings_bridge.py    Exposes ConfigManager + toomics auth to QML
-│   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, …)
+│   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, UpdatesView, …)
 ├── scripts/                      Local diagnostic + iCloud-sync scripts (run from user's machine)
 │   ├── toomics_test.py           End-to-end probe for the toomics provider
 │   ├── mangafire_test.py         End-to-end probe for the mangafire provider
@@ -111,6 +111,9 @@ comix/
         ├── config.py             ConfigManager (single config.json at project root)
         ├── secrets.py            Loader/writer for secrets.json (per-provider auth)
         ├── library.py            LibraryManager (persists library.json — what's downloaded + source URLs)
+        ├── chapters.py           Chapter-number parsing / normalisation from CBZ filenames (shared)
+        ├── provenance.py         Which site did these CBZs come from? (ComicInfo <Web>, local files only)
+        ├── update_check.py       Probe-only update check for one library entry (no downloads)
         ├── session.py            HTTP client: curl_cffi + rate limiter + FlareSolverr
         ├── retry.py              Generic retry-with-backoff decorator
         ├── hash.py               comix.to API request signing (HaruNeko port; fast path only)
@@ -232,6 +235,10 @@ process-wide `RLock`. Shape (per entry):
   intentional — accidentally re-downloading 200 chapters because a
   parent folder got renamed would be worse than the inverse. Hit
   "Remove" → re-download to recover.
+- **Check for Updates → review → approve** (Updates view, sidebar 🔔).
+  See the 2026-10-21 changelog entry. The Library toolbar's old
+  "Update All" button (download everything found, no questions) was
+  replaced by "Check for Updates"; the `updateAll()` slot remains.
 - The GUI's `LibraryBridge` (`gui/bridge/library_bridge.py`) exposes
   these slots to QML: `listEntries`, `updateEntry(url)` and
   `updateAll()` (probe + download), `checkStatusAll()` (probe only,
@@ -579,6 +586,89 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-10-21 — Check for Updates: review before download + source detection
+- **New Updates view** (sidebar 🔔, with a pending-count badge).
+  "Check for Updates" probes every ongoing library entry and lists
+  the series with new chapters; **nothing downloads until the user
+  ticks chapters and clicks "Download N chapters"**. Per series:
+  include checkbox, a site dropdown (each option shows latest chapter,
+  how many are new, and ★ when the files came from there), chapter
+  chips, and an opt-in "+ N older chapters missing (gaps)" section.
+  "Skip" hides a series until the next check. Replaces the Library
+  toolbar's Update All button, which downloaded without asking — the
+  foot-gun this feature exists to remove. Per-card "Update" is
+  unchanged (it's an explicit single-series action).
+- **Source detection (`src/utils/provenance.py`).** Every CBZ this app
+  builds has the series URL in `ComicInfo.xml` `<Web>`; that is ground
+  truth for where the chapters came from, unlike the title-fuzzy
+  matching `icloud_match.py` does. Image filenames are useless for
+  this (the downloader renames pages to `NNN.ext`), and third-party
+  CBZs (Yen Press rips etc.) carry no URL, so they contribute nothing.
+  On the first live run 14 of 180 folders had detectable files, and
+  in most of those the detected site differed from the library's
+  title-matched primary.
+- **iCloud cloud-only files are never opened.** ~240 of the ~290
+  iCloud Manga folders were entirely evicted (dataless placeholders);
+  reading any byte makes macOS download the whole CBZ. `is_cloud_only`
+  checks the `SF_DATALESS` stat flag (no file read) and skips them.
+  Filenames are still listed, so on-disk chapter numbers are unaffected.
+  Detected sources are persisted on the entry (`detected_sources`,
+  merged across scans) so a site found while a file was local stays
+  known after iCloud evicts it again. The `Manga/.reader_state.json`
+  file (the iPhone reader app's sync state) is never touched: scans
+  only look inside subfolders, and everything here is read-only.
+- **Probe order** (`src/utils/update_check.py`): detected sources →
+  primary URL → `alternative_sources`. Alternatives are probed only
+  when the enricher saw them past the best chapter found so far, so a
+  full-library check doesn't hit every mirror. Recommended source =
+  most new chapters, tie-broken by "your files came from here", then
+  primary. New chapters are split into `newer` (past the highest
+  on-disk chapter — pre-selected) and `gaps` (holes below it — shown,
+  not selected; often deliberate).
+- **Manual selection.** Every Library card has a checkbox on its
+  cover; with any ticked, the toolbar button becomes "Check N
+  selected" (`LibraryBridge.checkForUpdatesFor(urls)`). Ticked series
+  are checked even when marked completed — ticking is explicit. The
+  toolbar's "Select all shown" respects the current search/filters.
+- **Why a full check covers ~89 of 264 entries:** 175 are completed
+  and skipped; of the rest, ~40 have no parseable CBZ chapters (38
+  point at `./downloads/...` folders that no longer exist, a few hold
+  image folders or per-volume CBZs). Those return instantly and are
+  counted as "skipped (no chapter files)" in the summary rather than
+  silently as "up to date".
+- **Results persist** in `pending_updates.json` (project root,
+  gitignored) so a long check survives an app restart. `applyUpdates`
+  re-reads the folder before dispatching, so chapters moved into
+  iCloud since the check aren't fetched twice.
+- **Fixed: updates split / unhooked library entries.** Two pre-existing
+  bugs in the Update path:
+    1. `upsert_manga` rebuilt the entry from scratch, so a download
+       for an existing series overwrote `download_path`/`folder` with
+       `./downloads/<title>` and dropped `alternative_sources`,
+       `origin` and any other script-written field. For an iCloud
+       entry, Update then read the wrong folder and treated the whole
+       iCloud collection as missing. Now unknown fields are carried
+       over, and `icloud_import` entries keep their iCloud location.
+    2. Downloading from an alternative site upserted under the *alt's*
+       URL, creating a second library entry per site. Update dispatches
+       (both the new flow and per-card Update) now set
+       `manga_dict["library_url"]`; `DownloadWorker` skips the upsert
+       and `record_chapter(..., library_url=...)` files chapters under
+       the original entry.
+- Chapter-number helpers moved from `gui/bridge/library_bridge.py` to
+  `src/utils/chapters.py` (non-GUI code needed them). The underscore
+  aliases stay in `library_bridge` because `scripts/missing_chapters.py`
+  imports them from there.
+- **Downloads still go to `config.download_path`, not iCloud** —
+  unchanged policy; the summary line after approval says so.
+- **Verified:** detection over all 180 library folders in 0.5 s with
+  no iCloud downloads; live check of "Someone Stop Her!" recommended
+  manhwabuddy (detected) with ch 77–78 while the primary
+  (mangadistrict) was SNI-blocked; offscreen GUI run against a copy of
+  library.json with a stubbed downloader confirmed chip toggles, site
+  switching, gap selection, the on-disk re-check, badge updates and
+  dispatch under `library_url`.
 
 ### 2026-08-09 — fail fast on network-level (SNI) blocks
 - **Symptom:** a provider stops fetching entirely on some networks.
