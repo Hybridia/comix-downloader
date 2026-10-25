@@ -90,18 +90,23 @@ Item {
     // cards rise in. Data-only refreshes (a download finished) don't
     // replay the entrance.
     property bool animateNext: false
+    onAnimateNextChanged: if (animateNext) animateOff.restart()
+    Timer { id: animateOff; interval: 1200; onTriggered: libraryView.animateNext = false }
     function refresh(animate) {
         entries = LibraryBridge.listEntries()
         applyFilterAndSort(!!animate)
     }
 
-    function cardCount() { return cardRepeater.count }
-    function cardAt(i) { return cardRepeater.itemAt(i) }
+    function cardCount() { return cardList.count }
+    // Cards are created lazily: scroll the card into view first.
+    function cardAt(i) {
+        cardList.positionViewAtIndex(i, ListView.Contain)
+        cardList.forceLayout()
+        return cardList.itemAtIndex(i)
+    }
     function cardFor(url) {
-        for (var i = 0; i < cardRepeater.count; i++) {
-            var c = cardRepeater.itemAt(i)
-            if (c && c.entry && c.entry.source_url === url) return c
-        }
+        for (var i = 0; i < entryModel.count; i++)
+            if (entryModel.get(i).source_url === url) return cardAt(i)
         return null
     }
 
@@ -914,83 +919,83 @@ Item {
         // -----------------------------------------------------------
         // ENTRY LIST
         // -----------------------------------------------------------
-        ScrollView {
+        // Lazy list: only cards on screen (+ a small buffer) exist. A
+        // Repeater built all ~260 cards up front and froze the UI for
+        // most of a second every time the Library opened.
+        ListView {
+            id: cardList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // Without these the ScrollView takes its content's implicit
-            // width and the cards' right-hand buttons spill off-screen.
             Layout.minimumWidth: 0
             Layout.preferredWidth: 0
             visible: entryModel.count > 0
             clip: true
-            contentWidth: availableWidth
+            spacing: 10
+            cacheBuffer: 600
+            boundsBehavior: Flickable.StopAtBounds
+            model: ListModel { id: entryModel }
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-            ColumnLayout {
-                width: parent.width
-                spacing: 10
+            delegate: LibraryCard {
+                required property int index
+                required property var model
+                width: ListView.view.width
+                height: Layout.preferredHeight
+                // Only the first screenful animates; the rest
+                // are off-screen anyway.
+                entranceIndex: libraryView.animateNext && index < 16 ? index : -1
+                entry: libraryView.entryFor(model.source_url)
+                statusMessage: libraryView.statusByUrl[model.source_url] || ""
+                busy: libraryView.busyUrl === model.source_url
+                      || (libraryView.checkVersion, !!libraryView.checkingUrls[model.source_url])
+                checkInfo: (libraryView.checkVersion,
+                            libraryView.checkInfoByUrl[model.source_url] || null)
+                selected: (libraryView.selVersion,
+                           !!libraryView.selectedUrls[model.source_url])
+                onSelectToggled: libraryView.toggleSelected(model.source_url)
 
-                Repeater {
-                    id: cardRepeater
-                    model: ListModel { id: entryModel }
-
-                    LibraryCard {
-                        // Only the first screenful animates; the rest
-                        // are off-screen anyway.
-                        entranceIndex: libraryView.animateNext && index < 16 ? index : -1
-                        entry: libraryView.entryFor(model.source_url)
-                        statusMessage: libraryView.statusByUrl[model.source_url] || ""
-                        busy: libraryView.busyUrl === model.source_url
-                              || (libraryView.checkVersion, !!libraryView.checkingUrls[model.source_url])
-                        checkInfo: (libraryView.checkVersion,
-                                    libraryView.checkInfoByUrl[model.source_url] || null)
-                        selected: (libraryView.selVersion,
-                                   !!libraryView.selectedUrls[model.source_url])
-                        onSelectToggled: libraryView.toggleSelected(model.source_url)
-
-                        // "Check for new" — probe-only; the result shows
-                        // inline and nothing downloads until approved.
-                        onUpdateRequested: {
-                            libraryView.checkingUrls[model.source_url] = true
-                            delete libraryView.checkInfoByUrl[model.source_url]
-                            libraryView.checkVersion++
-                            libraryView.setStatus(model.source_url,
-                                                  "Checking for new chapters…")
-                            LibraryBridge.checkEntry(model.source_url)
-                        }
-                        onDownloadNewRequested: {
-                            var n = LibraryBridge.downloadRecommended(model.source_url)
-                            delete libraryView.checkInfoByUrl[model.source_url]
-                            libraryView.checkVersion++
-                            libraryView.setStatus(model.source_url, n > 0
-                                ? "Downloading " + n + " new chapter" + (n === 1 ? "" : "s") + "…"
-                                : "Nothing to download — already on disk")
-                        }
-                        onReviewRequested: libraryView.updatesRequested()
-                        onRemoveRequested: {
-                            LibraryBridge.removeEntry(model.source_url)
-                        }
-                        onOpenFolderRequested: {
-                            LibraryBridge.openFolder(model.source_url)
-                        }
-                        onOpenWebsiteRequested: {
-                            LibraryBridge.openWebsite(model.source_url)
-                        }
-                        onOpenAlternativeRequested: function(url) {
-                            // Reuse the same bridge slot — it just
-                            // calls webbrowser.open() so any http(s)
-                            // URL works the same way.
-                            LibraryBridge.openWebsite(url)
-                        }
-                        onConvertToCbzRequested: {
-                            libraryView.busyUrl = model.source_url
-                            libraryView.setStatus(model.source_url,
-                                                  "Packing chapters into CBZ…")
-                            LibraryBridge.convertToCbz(model.source_url)
-                        }
-                        onStatusChangeRequested: function(statusKey, manual) {
-                            LibraryBridge.setStatus(model.source_url, statusKey, manual)
-                        }
-                    }
+                // "Check for new" — probe-only; the result shows
+                // inline and nothing downloads until approved.
+                onUpdateRequested: {
+                    libraryView.checkingUrls[model.source_url] = true
+                    delete libraryView.checkInfoByUrl[model.source_url]
+                    libraryView.checkVersion++
+                    libraryView.setStatus(model.source_url,
+                                          "Checking for new chapters…")
+                    LibraryBridge.checkEntry(model.source_url)
+                }
+                onDownloadNewRequested: {
+                    var n = LibraryBridge.downloadRecommended(model.source_url)
+                    delete libraryView.checkInfoByUrl[model.source_url]
+                    libraryView.checkVersion++
+                    libraryView.setStatus(model.source_url, n > 0
+                        ? "Downloading " + n + " new chapter" + (n === 1 ? "" : "s") + "…"
+                        : "Nothing to download — already on disk")
+                }
+                onReviewRequested: libraryView.updatesRequested()
+                onRemoveRequested: {
+                    LibraryBridge.removeEntry(model.source_url)
+                }
+                onOpenFolderRequested: {
+                    LibraryBridge.openFolder(model.source_url)
+                }
+                onOpenWebsiteRequested: {
+                    LibraryBridge.openWebsite(model.source_url)
+                }
+                onOpenAlternativeRequested: function(url) {
+                    // Reuse the same bridge slot — it just
+                    // calls webbrowser.open() so any http(s)
+                    // URL works the same way.
+                    LibraryBridge.openWebsite(url)
+                }
+                onConvertToCbzRequested: {
+                    libraryView.busyUrl = model.source_url
+                    libraryView.setStatus(model.source_url,
+                                          "Packing chapters into CBZ…")
+                    LibraryBridge.convertToCbz(model.source_url)
+                }
+                onStatusChangeRequested: function(statusKey, manual) {
+                    LibraryBridge.setStatus(model.source_url, statusKey, manual)
                 }
             }
         }

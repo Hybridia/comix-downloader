@@ -159,7 +159,7 @@ Rectangle {
                             GradientStop { position: 1; color: "transparent" }
                         }
                         SequentialAnimation on x {
-                            running: Theme.animations && root.selectedCount > 0
+                            running: Theme.animations && root.selectedCount > 0 && dlButton.visible
                             loops: Animation.Infinite
                             NumberAnimation { from: -120; to: 260; duration: 1400; easing.type: Easing.InOutQuad }
                             PauseAnimation { duration: 1800 }

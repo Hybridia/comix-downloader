@@ -40,7 +40,7 @@ class FxGallery(Smoke):
         self.pump(50)
         self.assertEqual(self.eval_qml("Theme.dur(400)"), 0)
         self.assertFalse(self.find("ambient").property("visible"))
-        self.assertFalse(self.find("burstLoader").property("active"))
+        self.assertFalse(self.find("burstLoader").property("active"))  # only alive during a burst
         self.assertFalse(self.find("pulseLoader").property("active"))
 
 

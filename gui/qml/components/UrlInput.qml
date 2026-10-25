@@ -183,7 +183,7 @@ Rectangle {
                     border.width: 0
                     border.color: Theme.glow
                     SequentialAnimation on border.width {
-                        running: fetchButton.ready && Theme.animations
+                        running: fetchButton.ready && Theme.animations && fetchButton.visible
                         loops: Animation.Infinite
                         NumberAnimation { from: 0; to: 6; duration: 900; easing.type: Easing.InOutSine }
                         NumberAnimation { from: 6; to: 0; duration: 900; easing.type: Easing.InOutSine }

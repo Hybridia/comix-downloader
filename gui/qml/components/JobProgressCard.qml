@@ -307,7 +307,7 @@ Rectangle {
                     NumberAnimation on x {
                         from: 0; to: -barTrack.width
                         duration: 1600; loops: Animation.Infinite
-                        running: Theme.animations && !card.isFinished && !card.isPaused
+                        running: Theme.animations && !card.isFinished && !card.isPaused && barTrack.visible
                     }
                 }
                 // Moving shimmer
@@ -323,7 +323,7 @@ Rectangle {
                     NumberAnimation on x {
                         from: -50; to: barTrack.width
                         duration: 1300; loops: Animation.Infinite
-                        running: Theme.animations && !card.isFinished && !card.isPaused
+                        running: Theme.animations && !card.isFinished && !card.isPaused && barTrack.visible
                     }
                 }
             }

@@ -10,7 +10,8 @@ Rectangle {
 
     Loader {
         anchors.fill: parent
-        active: Theme.animations
+        // Loops keep running while hidden, so stop when not on screen.
+        active: Theme.animations && root.visible
         sourceComponent: Item {
             Rectangle {
                 id: band

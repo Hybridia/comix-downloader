@@ -10,7 +10,7 @@ Item {
     Loader {
         objectName: "pulseLoader"
         anchors.fill: parent
-        active: Theme.animations && root.running
+        active: Theme.animations && root.running && root.visible
         sourceComponent: Item {
             Repeater {
                 model: 2
