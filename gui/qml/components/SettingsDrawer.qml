@@ -1,12 +1,19 @@
 import QtQuick
-import Style
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
+import Style
+import "../fx"
+import "../Style/palettes.js" as Palettes
 
-Rectangle {
+Item {
     id: root
 
     property bool isOpen: false
+    // The app content behind the drawer — blurred while it's open.
+    property Item backdropSource: null
+    // Toomics login in flight (button shows a spinner).
+    property bool loginBusy: false
 
     // Mirror toomics auth into local state so the textareas stay editable
     // until the user hits Save / Login.
@@ -17,11 +24,23 @@ Rectangle {
     property string toomicsStatusText: ""
     property string toomicsStatusLevel: "" // "ok" | "warn" | "err" | ""
 
+    readonly property var themeLabels: ({ ink: "Ink & Sakura", neon: "Neon Tokyo", ember: "Ember" })
+
+    function chooseTheme(name, scenePoint) {
+        if (SettingsBridge && SettingsBridge.theme === name) return
+        Fx.themeWipeRequested(name, scenePoint)
+    }
+    function setAnimations(on) { SettingsBridge.animationsEnabled = on }
+    function setAmbient(on) { SettingsBridge.ambientGlow = on }
+
     Connections {
         target: SettingsBridge
         function onToomicsStatus(level, message) {
+            root.loginBusy = false
             root.toomicsStatusLevel = level
             root.toomicsStatusText = message
+            if (level === "ok") Fx.toast("Toomics session saved", "ok")
+            else if (level === "err") toomicsSection.shake()
         }
         function onSettingsChanged() {
             // Re-sync drafts when settings change externally.
@@ -44,59 +63,100 @@ Rectangle {
     readonly property color error: Theme.error
     readonly property color success: Theme.success
     
-    visible: isOpen
-    color: Qt.rgba(0, 0, 0, 0.7)
-    
-    // Click outside to close
-    MouseArea {
+    visible: isOpen || panel.x < width
+
+    // Blurred snapshot of the app behind the drawer (not in software).
+    Loader {
+        id: backdrop
         anchors.fill: parent
-        onClicked: root.isOpen = false
+        active: root.visible && root.backdropSource !== null && !Theme.software && Theme.animations
+        sourceComponent: Item {
+            function refresh() {}
+            opacity: root.isOpen ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.dur(450) } }
+            ShaderEffectSource {
+                id: snap
+                anchors.fill: parent
+                sourceItem: root.backdropSource
+                // Only exists while the drawer is showing; the app behind
+                // rarely changes then, so live updates are cheap.
+                live: true
+                visible: false
+            }
+            MultiEffect {
+                anchors.fill: parent
+                source: snap
+                blurEnabled: true
+                blur: 0.7
+                blurMax: 32
+            }
+        }
+    }
+
+    // Dimmed scrim — click outside to close
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, 0.45)
+        opacity: root.isOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.dur(450) } }
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.isOpen
+            onClicked: root.isOpen = false
+        }
     }
     
-    // Settings Panel
+    // Settings Panel — springs in from the right
     Rectangle {
         id: panel
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        width: 380
+        objectName: "settingsPanel"
+        y: 0
+        height: parent.height
+        width: 420
         color: bgSurface
-        
-        x: root.isOpen ? 0 : width
-        Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+        border.color: Theme.border
+        x: root.isOpen ? root.width - width : root.width + 24
+        Behavior on x { NumberAnimation { duration: Theme.dur(600); easing.type: root.isOpen ? Easing.OutBack : Easing.InCubic; easing.overshoot: 0.9 } }
         
         MouseArea { anchors.fill: parent } // Prevent click-through
         
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 24
-            spacing: 24
+            anchors.margins: 22
+            spacing: 14
             
             // Header
             RowLayout {
                 Layout.fillWidth: true
-                
-                Text {
-                    text: "⚙️ SETTINGS"
-                    font.family: "Segoe UI"
-                    font.pixelSize: 22
-                    font.weight: Font.Bold
-                    color: textPrimary
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "SETTINGS"
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
+                        font.letterSpacing: 1.5
+                        color: textPrimary
+                    }
+                    Text {
+                        text: "Every change saves on its own"
+                        font.pixelSize: 11
+                        color: textTertiary
+                    }
                 }
-                
                 Item { Layout.fillWidth: true }
-                
                 Rectangle {
-                    width: 32; height: 32; radius: 6
-                    color: closeArea.containsMouse ? bgElevated : "transparent"
-                    Text { anchors.centerIn: parent; text: "×"; font.pixelSize: 18; font.weight: Font.Bold; color: textSecondary }
+                    width: 34; height: 34; radius: 17
+                    color: closeArea.containsMouse ? bgElevated : bgCard
+                    border.color: Theme.border
+                    rotation: closeArea.containsMouse ? 90 : 0
+                    scale: closeArea.containsMouse ? 1.1 : 1
+                    Behavior on rotation { NumberAnimation { duration: Theme.dur(400); easing.type: Easing.OutBack } }
+                    Behavior on scale { NumberAnimation { duration: Theme.dur(400); easing.type: Easing.OutBack } }
+                    Text { anchors.centerIn: parent; text: "✕"; font.pixelSize: 14; color: textPrimary }
                     MouseArea { id: closeArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.isOpen = false }
                 }
             }
             
-            // Scrollable settings body so the toomics section (which
-            // adds two TextAreas and a few buttons) can grow past the
-            // visible panel height.
             Flickable {
                 id: settingsScroll
                 Layout.fillWidth: true
@@ -109,119 +169,94 @@ Rectangle {
             ColumnLayout {
                 id: settingsCol
                 width: settingsScroll.width
-                spacing: 20
-                
-                // Output Format
-                SettingItem {
-                    label: "Output Format"
+                spacing: 14
+
+                // ─── Appearance ──────────────────────────────────────
+                Section {
+                    title: "APPEARANCE"
+                    order: 0
+
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: 8
                         Repeater {
-                            model: ["images", "pdf", "cbz"]
-                            Rectangle {
-                                width: 75; height: 36; radius: 8
-                                color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? accentPrimary : bgElevated
-                                border.color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? accentPrimary : textTertiary
-                                border.width: 1
-                                
-                                Text { 
-                                    anchors.centerIn: parent
-                                    text: modelData.toUpperCase()
-                                    font.pixelSize: 12
-                                    font.weight: Font.Bold
-                                    color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? bgDeep : textSecondary 
-                                }
-                                MouseArea { 
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: SettingsBridge.setValue("output_format", modelData) 
-                                }
+                            model: Theme.themes
+                            ThemeCard {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                themeName: modelData
                             }
                         }
                     }
+                    ToggleRow {
+                        label: "Animations"
+                        checked: SettingsBridge ? SettingsBridge.animationsEnabled : true
+                        onToggled: (on) => root.setAnimations(on)
+                    }
+                    ToggleRow {
+                        label: "Drifting background glow"
+                        checked: SettingsBridge ? SettingsBridge.ambientGlow : true
+                        onToggled: (on) => root.setAmbient(on)
+                    }
                 }
-                
-                // Keep Images
-                SettingItem {
-                    label: "Keep Images After Conversion"
-                    ToggleSwitch {
+
+                // ─── Downloads ───────────────────────────────────────
+                Section {
+                    title: "DOWNLOADS"
+                    order: 1
+
+                    Text { text: "Output format"; font.pixelSize: 13; color: textSecondary }
+                    FormatSelector { Layout.fillWidth: true }
+
+                    ToggleRow {
+                        label: "Keep images after conversion"
                         checked: SettingsBridge ? SettingsBridge.keepImages : false
-                        onToggled: if (SettingsBridge) SettingsBridge.setValue("keep_images", checked)
+                        onToggled: (on) => SettingsBridge.setValue("keep_images", on)
                     }
-                }
-                
-                // Enable Logs
-                SettingItem {
-                    label: "Enable Debug Logs"
-                    ToggleSwitch {
+                    ToggleRow {
+                        label: "Enable debug logs"
                         checked: SettingsBridge ? (SettingsBridge.getValue("enable_logs") || false) : false
-                        onToggled: if (SettingsBridge) SettingsBridge.setValue("enable_logs", checked)
+                        onToggled: (on) => SettingsBridge.setValue("enable_logs", on)
                     }
-                }
-                
-                // Download Path
-                SettingItem {
-                    label: "Download Path"
-                    Rectangle {
-                        width: 220; height: 40; radius: 8
-                        color: bgElevated
-                        border.color: textTertiary; border.width: 1
-                        
+
+                    SliderRow {
+                        label: "Chapter workers"
+                        from: 1; to: 10
+                        value: SettingsBridge ? SettingsBridge.maxChapterWorkers : 3
+                        onMoved: (v) => { if (SettingsBridge && v !== SettingsBridge.maxChapterWorkers) SettingsBridge.setValue("max_chapter_workers", v) }
+                    }
+                    SliderRow {
+                        label: "Image workers"
+                        from: 1; to: 20
+                        value: SettingsBridge ? SettingsBridge.maxImageWorkers : 5
+                        onMoved: (v) => { if (SettingsBridge && v !== SettingsBridge.maxImageWorkers) SettingsBridge.setValue("max_image_workers", v) }
+                    }
+
+                    Text { text: "Download path"; font.pixelSize: 13; color: textSecondary; Layout.topMargin: 4 }
+                    InputBox {
+                        Layout.fillWidth: true
                         TextInput {
                             anchors.fill: parent
                             anchors.leftMargin: 12; anchors.rightMargin: 12
                             verticalAlignment: Text.AlignVCenter
                             text: SettingsBridge ? SettingsBridge.downloadPath : ""
                             color: textPrimary
-                            font.pixelSize: 14
+                            selectionColor: Theme.accent
+                            selectedTextColor: Theme.bg
+                            font.pixelSize: 13
                             clip: true
                             selectByMouse: true
                             onEditingFinished: if (SettingsBridge) SettingsBridge.setValue("download_path", text)
                         }
                     }
                 }
-                
-                // Max Chapter Workers
-                SettingItem {
-                    label: "Max Chapter Workers (1-10)"
-                    NumberInput {
-                        value: SettingsBridge ? SettingsBridge.maxChapterWorkers : 3
-                        minValue: 1; maxValue: 10
-                        onValueChanged: if (SettingsBridge && value !== SettingsBridge.maxChapterWorkers) SettingsBridge.setValue("max_chapter_workers", value)
-                    }
-                }
-                
-                // Max Image Workers
-                SettingItem {
-                    label: "Max Image Workers (1-20)"
-                    NumberInput {
-                        value: SettingsBridge ? SettingsBridge.maxImageWorkers : 5
-                        minValue: 1; maxValue: 20
-                        onValueChanged: if (SettingsBridge && value !== SettingsBridge.maxImageWorkers) SettingsBridge.setValue("max_image_workers", value)
-                    }
-                }
-
-                // ─── Divider ─────────────────────────────────────────
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 8
-                    height: 1
-                    color: textTertiary
-                    opacity: 0.3
-                }
 
                 // ─── Toomics auth ────────────────────────────────────
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
+                Section {
+                    id: toomicsSection
+                    title: "TOOMICS LOGIN"
+                    order: 2
 
-                    Text {
-                        text: "TOOMICS LOGIN"
-                        font.pixelSize: 12
-                        font.weight: Font.Bold
-                        color: accentPrimary
-                        Layout.topMargin: 4
-                    }
                     Text {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
@@ -237,23 +272,16 @@ Rectangle {
                         lineHeight: 1.3
                     }
 
-                    // ── Credentials (preferred) ──────────────────
-                    Text {
-                        text: "Email"
-                        font.pixelSize: 12
-                        color: textSecondary
-                    }
-                    Rectangle {
+                    Text { text: "Email"; font.pixelSize: 12; color: textSecondary }
+                    InputBox {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 40
-                        radius: 8
-                        color: bgElevated
-                        border.color: textTertiary; border.width: 1
                         TextInput {
                             anchors.fill: parent
                             anchors.leftMargin: 10; anchors.rightMargin: 10
                             verticalAlignment: TextInput.AlignVCenter
                             color: textPrimary
+                            selectionColor: Theme.accent
+                            selectedTextColor: Theme.bg
                             font.pixelSize: 13
                             clip: true
                             selectByMouse: true
@@ -262,24 +290,17 @@ Rectangle {
                             onTextChanged: root.toomicsEmailDraft = text
                         }
                     }
-
-                    Text {
-                        text: "Password"
-                        font.pixelSize: 12
-                        color: textSecondary
-                    }
-                    Rectangle {
+                    Text { text: "Password"; font.pixelSize: 12; color: textSecondary }
+                    InputBox {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 40
-                        radius: 8
-                        color: bgElevated
-                        border.color: textTertiary; border.width: 1
                         TextInput {
                             id: toomicsPwField
                             anchors.fill: parent
                             anchors.leftMargin: 10; anchors.rightMargin: 10
                             verticalAlignment: TextInput.AlignVCenter
                             color: textPrimary
+                            selectionColor: Theme.accent
+                            selectedTextColor: Theme.bg
                             font.pixelSize: 13
                             echoMode: TextInput.Password
                             clip: true
@@ -289,33 +310,46 @@ Rectangle {
                         }
                     }
 
-                    // Login button — runs the email/password flow, populates
-                    // cookie + UA automatically.
-                    Rectangle {
+                    // Login button — morphs into a spinner while waiting.
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 40
-                        radius: 8
-                        color: loginArea.containsMouse ? accentPrimary : bgElevated
-                        border.color: accentPrimary; border.width: 1
-                        Text {
-                            anchors.centerIn: parent
-                            text: "🔐 Login"
-                            font.pixelSize: 13
-                            font.weight: Font.Bold
-                            color: loginArea.containsMouse ? bgDeep : accentPrimary
-                        }
-                        MouseArea {
-                            id: loginArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (SettingsBridge) {
-                                SettingsBridge.loginToomics(
-                                    root.toomicsEmailDraft,
-                                    root.toomicsPasswordDraft,
-                                    true
-                                )
+                        spacing: 10
+                        Item {
+                            Layout.preferredWidth: root.loginBusy ? 40 : 130
+                            Layout.preferredHeight: 40
+                            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.dur(400); easing.type: Easing.OutQuint } }
+                            FxButton {
+                                anchors.fill: parent
+                                text: root.loginBusy ? "" : "🔐 Login"
+                                radius: root.loginBusy ? 20 : 10
+                                Behavior on radius { NumberAnimation { duration: Theme.dur(400) } }
+                                onClicked: if (SettingsBridge && !root.loginBusy) {
+                                    root.loginBusy = true
+                                    root.toomicsStatusText = ""
+                                    SettingsBridge.loginToomics(root.toomicsEmailDraft, root.toomicsPasswordDraft, true)
+                                }
                             }
+                            Spinner {
+                                anchors.centerIn: parent
+                                width: 22; height: 22
+                                visible: root.loginBusy
+                                color: Theme.bg
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.toomicsStatusText
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 11
+                            color: root.toomicsStatusLevel === "ok" ? success :
+                                   root.toomicsStatusLevel === "warn" ? accentPrimary :
+                                   root.toomicsStatusLevel === "err" ? error : textSecondary
+                            opacity: text !== "" ? 1 : 0
+                            transform: Translate {
+                                y: root.toomicsStatusText !== "" ? 0 : 6
+                                Behavior on y { NumberAnimation { duration: Theme.dur(400); easing.type: Easing.OutBack } }
+                            }
+                            Behavior on opacity { NumberAnimation { duration: Theme.dur(300) } }
                         }
                     }
 
@@ -327,18 +361,10 @@ Rectangle {
                         color: textTertiary
                         Layout.alignment: Qt.AlignHCenter
                     }
-
-                    Text {
-                        text: "Session cookie"
-                        font.pixelSize: 12
-                        color: textSecondary
-                    }
-                    Rectangle {
+                    Text { text: "Session cookie"; font.pixelSize: 12; color: textSecondary }
+                    InputBox {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 110
-                        radius: 8
-                        color: bgElevated
-                        border.color: textTertiary; border.width: 1
                         ScrollView {
                             anchors.fill: parent
                             anchors.margins: 8
@@ -352,30 +378,29 @@ Rectangle {
                                 background: null
                                 placeholderText: "Paste cookie: <name>=<value>; <name>=<value>; …"
                                 placeholderTextColor: textTertiary
+                                palette.text: textPrimary
+                                palette.placeholderText: textTertiary
+                                palette.highlight: Theme.accent
+                                palette.highlightedText: Theme.bg
+                                selectionColor: Theme.accent
+                                selectedTextColor: Theme.bg
                                 selectByMouse: true
                                 text: root.toomicsCookieDraft
                                 onTextChanged: root.toomicsCookieDraft = text
                             }
                         }
                     }
-
-                    Text {
-                        text: "User-agent"
-                        font.pixelSize: 12
-                        color: textSecondary
-                    }
-                    Rectangle {
+                    Text { text: "User-agent"; font.pixelSize: 12; color: textSecondary }
+                    InputBox {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 40
-                        radius: 8
-                        color: bgElevated
-                        border.color: textTertiary; border.width: 1
                         TextInput {
                             id: toomicsUaField
                             anchors.fill: parent
                             anchors.leftMargin: 10; anchors.rightMargin: 10
                             verticalAlignment: TextInput.AlignVCenter
                             color: textPrimary
+                            selectionColor: Theme.accent
+                            selectedTextColor: Theme.bg
                             font.pixelSize: 12
                             font.family: "Menlo"
                             clip: true
@@ -384,259 +409,404 @@ Rectangle {
                             onTextChanged: root.toomicsUaDraft = text
                         }
                     }
-
-                    // Buttons row
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-
-                        Rectangle {
-                            Layout.preferredWidth: 90
-                            Layout.preferredHeight: 36
-                            radius: 8
-                            color: saveArea.containsMouse ? accentPrimary : bgElevated
-                            border.color: accentPrimary; border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "Save"
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
-                                color: saveArea.containsMouse ? bgDeep : accentPrimary
-                            }
-                            MouseArea {
-                                id: saveArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: if (SettingsBridge) {
-                                    SettingsBridge.saveToomicsAuth(
-                                        root.toomicsCookieDraft,
-                                        root.toomicsUaDraft
-                                    )
-                                }
-                            }
+                        FxButton {
+                            Layout.preferredWidth: 90; Layout.preferredHeight: 36
+                            text: "Save"
+                            onClicked: if (SettingsBridge) SettingsBridge.saveToomicsAuth(root.toomicsCookieDraft, root.toomicsUaDraft)
                         }
-
-                        Rectangle {
-                            Layout.preferredWidth: 90
-                            Layout.preferredHeight: 36
-                            radius: 8
-                            color: testArea.containsMouse ? bgElevated : "transparent"
-                            border.color: textSecondary; border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "Test"
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
-                                color: textPrimary
-                            }
-                            MouseArea {
-                                id: testArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: if (SettingsBridge) SettingsBridge.testToomicsAuth()
-                            }
+                        FxButton {
+                            Layout.preferredWidth: 90; Layout.preferredHeight: 36
+                            text: "Test"
+                            primary: false
+                            onClicked: if (SettingsBridge) SettingsBridge.testToomicsAuth()
                         }
-
                         Item { Layout.fillWidth: true }
-
-                        Rectangle {
-                            Layout.preferredWidth: 70
-                            Layout.preferredHeight: 36
-                            radius: 8
-                            color: clearArea.containsMouse ? error : "transparent"
-                            border.color: error; border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "Clear"
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
-                                color: clearArea.containsMouse ? textPrimary : error
-                            }
-                            MouseArea {
-                                id: clearArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: if (SettingsBridge) {
-                                    root.toomicsCookieDraft = ""
-                                    root.toomicsUaDraft = ""
-                                    SettingsBridge.clearToomicsAuth()
-                                }
+                        FxButton {
+                            Layout.preferredWidth: 80; Layout.preferredHeight: 36
+                            text: "Clear"
+                            primary: false
+                            onClicked: if (SettingsBridge) {
+                                root.toomicsCookieDraft = ""
+                                root.toomicsUaDraft = ""
+                                SettingsBridge.clearToomicsAuth()
                             }
                         }
                     }
+                }
 
-                    // Status line
-                    Text {
+                // ─── Danger zone ─────────────────────────────────────
+                Section {
+                    title: "DANGER ZONE"
+                    order: 3
+                    HoldButton {
+                        objectName: "holdReset"
                         Layout.fillWidth: true
-                        visible: root.toomicsStatusText !== ""
-                        text: root.toomicsStatusText
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 11
-                        color: root.toomicsStatusLevel === "ok" ? success :
-                               root.toomicsStatusLevel === "warn" ? accentPrimary :
-                               root.toomicsStatusLevel === "err" ? error : textSecondary
+                        text: "Hold to reset to defaults"
+                        onConfirmed: {
+                            SettingsBridge.resetToDefaults()
+                            Fx.toast("Settings reset to defaults", "ok")
+                        }
                     }
                 }
 
-                // ─── End toomics auth ────────────────────────────────
-
-                Item { Layout.preferredHeight: 4 }
-
-                // Reset Button
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 180; height: 44; radius: 8
-                    color: resetArea.containsMouse ? error : "transparent"
-                    border.color: error; border.width: 2
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Reset to Defaults"
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                        color: resetArea.containsMouse ? textPrimary : error
-                    }
-
-                    MouseArea {
-                        id: resetArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: SettingsBridge.resetToDefaults()
-                    }
-                }
+                Item { Layout.preferredHeight: 8 }
             } // settingsCol
             } // Flickable
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
-    // SETTING ITEM COMPONENT
+    // COMPONENTS
     // ═══════════════════════════════════════════════════════════════
-    component SettingItem: ColumnLayout {
-        property string label: ""
-        default property alias content: contentArea.children
-        
+
+    // Card that slides in (staggered by `order`) each time the drawer opens.
+    component Section: Rectangle {
+        id: sec
+        property string title: ""
+        property int order: 0
+        default property alias content: secCol.data
+        function shake() { shakeAnim.restart() }
+
         Layout.fillWidth: true
-        spacing: 8
-        
-        Text { 
-            text: label
-            font.pixelSize: 13
-            font.weight: Font.Medium
-            color: textSecondary 
+        implicitHeight: secCol.implicitHeight + 30
+        radius: 14
+        color: bgCard
+        border.color: Theme.border
+        opacity: 0
+        transform: Translate { id: secShift; x: 30 }
+
+        Connections {
+            target: root
+            function onIsOpenChanged() { if (root.isOpen) secIn.restart() }
         }
-        Row { id: contentArea; spacing: 8 }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // TOGGLE SWITCH COMPONENT
-    // ═══════════════════════════════════════════════════════════════
-    component ToggleSwitch: Rectangle {
-        property bool checked: false
-        signal toggled()
-        
-        width: 52; height: 28; radius: 14
-        color: checked ? accentPrimary : bgElevated
-        border.color: checked ? accentPrimary : textTertiary; border.width: 1
-        
-        Behavior on color { ColorAnimation { duration: 150 } }
-        
-        Rectangle {
-            width: 22; height: 22; radius: 11
-            anchors.verticalCenter: parent.verticalCenter
-            x: parent.checked ? parent.width - width - 3 : 3
-            color: textPrimary
-            
-            Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Component.onCompleted: if (root.isOpen) secIn.restart()
+
+        SequentialAnimation {
+            id: secIn
+            PropertyAction { target: sec; property: "opacity"; value: 0 }
+            PropertyAction { target: secShift; property: "x"; value: 30 }
+            PauseAnimation { duration: Theme.dur(80 + sec.order * 80) }
+            ParallelAnimation {
+                NumberAnimation { target: sec; property: "opacity"; to: 1; duration: Theme.dur(450); easing.type: Easing.OutQuint }
+                NumberAnimation { target: secShift; property: "x"; to: 0; duration: Theme.dur(550); easing.type: Easing.OutQuint }
+            }
         }
-        
-        MouseArea {
+        SequentialAnimation {
+            id: shakeAnim
+            loops: 2
+            NumberAnimation { target: secShift; property: "x"; to: -7; duration: Theme.dur(56) }
+            NumberAnimation { target: secShift; property: "x"; to: 7; duration: Theme.dur(112) }
+            NumberAnimation { target: secShift; property: "x"; to: 0; duration: Theme.dur(56) }
+        }
+
+        ColumnLayout {
+            id: secCol
             anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: { parent.checked = !parent.checked; parent.toggled() }
+            anchors.margins: 15
+            spacing: 10
+            Text {
+                text: sec.title
+                font.pixelSize: 11
+                font.weight: Font.Bold
+                font.letterSpacing: 2
+                color: textTertiary
+            }
         }
     }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // NUMBER INPUT COMPONENT (custom spinbox replacement)
-    // ═══════════════════════════════════════════════════════════════
-    component NumberInput: Rectangle {
-        property int value: 0
-        property int minValue: 0
-        property int maxValue: 100
-        
-        width: 120; height: 40; radius: 8
+
+    // Theme preview card: click → circular colour wipe to that theme.
+    component ThemeCard: Rectangle {
+        id: card
+        property string themeName: "ink"
+        readonly property var pal: Palettes.palette(themeName)
+        readonly property bool selected: SettingsBridge && SettingsBridge.theme === themeName
+        objectName: "themeCard_" + themeName
+
+        implicitHeight: 86
+        radius: 12
+        color: "transparent"
+        border.width: 2
+        border.color: selected ? Theme.accent : (cardArea.containsMouse ? Theme.textTertiary : Theme.border)
+        Behavior on border.color { ColorAnimation { duration: Theme.dur(250) } }
+        transform: Translate {
+            y: cardArea.containsMouse ? -3 : 0
+            Behavior on y { NumberAnimation { duration: Theme.dur(300); easing.type: Easing.OutBack } }
+        }
+        // glow ring when selected
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -4
+            radius: 15
+            color: "transparent"
+            border.width: 3
+            border.color: Theme.glow
+            opacity: card.selected ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.dur(300) } }
+        }
+        Rectangle {
+            id: prev
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
+            height: 44
+            radius: 7
+            color: card.pal.bg
+            Rectangle { x: 6; y: 6; width: 16; height: parent.height - 12; radius: 4; color: card.pal.card }
+            Rectangle { x: 28; y: 8; width: parent.width - 36; height: 8; radius: 4; color: card.pal.accent }
+            Rectangle { x: 28; y: 22; width: (parent.width - 36) * 0.45; height: 6; radius: 3; color: card.pal.cool }
+        }
+        Text {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 8 }
+            text: root.themeLabels[card.themeName] || card.themeName
+            font.pixelSize: 11
+            font.weight: card.selected ? Font.DemiBold : Font.Normal
+            color: card.selected ? textPrimary : textSecondary
+        }
+        MouseArea {
+            id: cardArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: (m) => root.chooseTheme(card.themeName, card.mapToItem(null, m.x, m.y))
+        }
+    }
+
+    // Label + springy switch.
+    component ToggleRow: RowLayout {
+        id: row
+        property string label: ""
+        property bool checked: false
+        signal toggled(bool on)
+        Layout.fillWidth: true
+        Text { Layout.fillWidth: true; text: row.label; font.pixelSize: 13; color: textPrimary }
+        Rectangle {
+            id: sw
+            width: 46; height: 26; radius: 13
+            color: row.checked ? accentPrimary : bgElevated
+            border.color: row.checked ? accentPrimary : Theme.border
+            Behavior on color { ColorAnimation { duration: Theme.dur(300) } }
+            Rectangle {
+                id: knob
+                height: 20; radius: 10
+                width: swArea.pressed ? 26 : 20
+                anchors.verticalCenter: parent.verticalCenter
+                x: row.checked ? sw.width - width - 3 : 3
+                color: row.checked ? "#FFFFFF" : textSecondary
+                Behavior on x { NumberAnimation { duration: Theme.dur(450); easing.type: Easing.OutBack; easing.overshoot: 1.6 } }
+                Behavior on width { NumberAnimation { duration: Theme.dur(150) } }
+            }
+            MouseArea {
+                id: swArea
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: row.toggled(!row.checked)
+            }
+        }
+    }
+
+    // Label + slider with a value bubble above the handle.
+    component SliderRow: RowLayout {
+        id: srow
+        property string label: ""
+        property int from: 1
+        property int to: 10
+        property int value: 1
+        signal moved(int v)
+        Layout.fillWidth: true
+        Layout.topMargin: 18
+        Text { Layout.fillWidth: true; text: srow.label; font.pixelSize: 13; color: textPrimary }
+        Item {
+            id: track
+            Layout.preferredWidth: 170
+            Layout.preferredHeight: 22
+            readonly property real frac: (srow.value - srow.from) / Math.max(1, srow.to - srow.from)
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width; height: 4; radius: 2
+                color: bgElevated
+                Rectangle { width: parent.width * track.frac; height: parent.height; radius: 2; color: accentPrimary }
+            }
+            Rectangle {
+                id: handle
+                width: 16; height: 16; radius: 8
+                anchors.verticalCenter: parent.verticalCenter
+                x: track.frac * (track.width - width)
+                color: accentPrimary
+                border.color: Theme.highlight
+                scale: dragArea.pressed ? 1.25 : 1
+                Behavior on scale { NumberAnimation { duration: Theme.dur(250); easing.type: Easing.OutBack } }
+            }
+            Rectangle {
+                id: bubble
+                width: bubbleText.implicitWidth + 12; height: 18; radius: 6
+                color: accentPrimary
+                x: handle.x + handle.width / 2 - width / 2
+                y: -22
+                scale: dragArea.pressed ? 1.25 : 1
+                transformOrigin: Item.Bottom
+                Behavior on scale { NumberAnimation { duration: Theme.dur(250); easing.type: Easing.OutBack } }
+                Text { id: bubbleText; anchors.centerIn: parent; text: srow.value; font.pixelSize: 11; font.weight: Font.Black; color: Theme.bg }
+            }
+            MouseArea {
+                id: dragArea
+                anchors.fill: parent
+                anchors.margins: -6
+                cursorShape: Qt.PointingHandCursor
+                function pick(mx) {
+                    var f = Math.max(0, Math.min(1, (mx - 6) / track.width))
+                    var v = Math.round(srow.from + f * (srow.to - srow.from))
+                    if (v !== srow.value) srow.moved(v)
+                }
+                onPressed: (m) => pick(m.x)
+                onPositionChanged: (m) => { if (pressed) pick(m.x) }
+            }
+        }
+    }
+
+    // CBZ / PDF / Images with a spring-sliding highlight (same setting
+    // as the Browse view's selector).
+    component FormatSelector: Rectangle {
+        id: fsel
+        readonly property var formats: ["cbz", "pdf", "images"]
+        readonly property int idx: Math.max(0, formats.indexOf(SettingsBridge ? SettingsBridge.outputFormat : "cbz"))
+        implicitHeight: 40
+        radius: 10
         color: bgElevated
-        border.color: textTertiary; border.width: 1
-        
-        RowLayout {
+        Rectangle {
+            y: 4; height: parent.height - 8
+            width: (parent.width - 8) / 3
+            x: 4 + fsel.idx * width
+            radius: 7
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Theme.accent }
+                GradientStop { position: 1; color: Theme.accent2 }
+            }
+            Behavior on x { NumberAnimation { duration: Theme.dur(500); easing.type: Easing.OutBack } }
+        }
+        Row {
             anchors.fill: parent
             anchors.margins: 4
-            spacing: 0
-            
-            // Minus button
-            Rectangle {
-                Layout.preferredWidth: 32; Layout.fillHeight: true
-                radius: 6
-                color: minusArea.containsMouse ? bgCard : "transparent"
-                
-                Text {
-                    anchors.centerIn: parent
-                    text: "−"
-                    font.pixelSize: 18
-                    font.weight: Font.Bold
-                    color: value > minValue ? accentPrimary : textTertiary
-                }
-                
-                MouseArea {
-                    id: minusArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: if (value > minValue) value--
-                }
-            }
-            
-            // Value display
-            Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                
-                Text {
-                    anchors.centerIn: parent
-                    text: value
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                    color: textPrimary
-                }
-            }
-            
-            // Plus button
-            Rectangle {
-                Layout.preferredWidth: 32; Layout.fillHeight: true
-                radius: 6
-                color: plusArea.containsMouse ? bgCard : "transparent"
-                
-                Text {
-                    anchors.centerIn: parent
-                    text: "+"
-                    font.pixelSize: 18
-                    font.weight: Font.Bold
-                    color: value < maxValue ? accentPrimary : textTertiary
-                }
-                
-                MouseArea {
-                    id: plusArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: if (value < maxValue) value++
+            Repeater {
+                model: ["CBZ", "PDF", "Images"]
+                Item {
+                    required property string modelData
+                    required property int index
+                    width: (fsel.width - 8) / 3; height: parent.height
+                    Text {
+                        anchors.centerIn: parent
+                        text: modelData
+                        font.pixelSize: 12; font.weight: Font.DemiBold
+                        color: fsel.idx === index ? Theme.bg : textSecondary
+                        Behavior on color { ColorAnimation { duration: Theme.dur(250) } }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: SettingsBridge.setValue("output_format", fsel.formats[index])
+                    }
                 }
             }
         }
+    }
+
+    // Text field frame with an accent glow while focused.
+    component InputBox: Rectangle {
+        id: box
+        implicitHeight: 40
+        radius: 9
+        color: bgElevated
+        readonly property bool focused: {
+            for (var i = 0; i < children.length; i++)
+                if (children[i].activeFocus) return true
+            return false
+        }
+        border.color: focused ? Theme.accent : Theme.border
+        Behavior on border.color { ColorAnimation { duration: Theme.dur(250) } }
+    }
+
+    // Press-and-hold confirm: fills while held, drains back if released.
+    component HoldButton: Rectangle {
+        id: hold
+        property string text: ""
+        property real progress: 0
+        property int holdTime: 1400
+        signal confirmed()
+        function begin() {
+            drain.stop()
+            fill.from = hold.progress
+            fill.duration = Math.max(1, hold.holdTime * (1 - hold.progress))
+            fill.restart()
+        }
+        function end() {
+            if (!fill.running) return
+            fill.stop()
+            drain.restart()
+        }
+        implicitHeight: 44
+        radius: 10
+        color: bgElevated
+        border.color: holdArea.containsMouse ? Theme.error : Theme.border
+        clip: true
+        Rectangle {
+            width: parent.width * hold.progress
+            height: parent.height
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Theme.error }
+                GradientStop { position: 1; color: Qt.lighter(Theme.error, 1.3) }
+            }
+            opacity: 0.85
+        }
+        Text {
+            anchors.centerIn: parent
+            text: hold.progress > 0 && hold.progress < 1 ? "Keep holding…" : hold.text
+            font.pixelSize: 13; font.weight: Font.DemiBold
+            color: textPrimary
+        }
+        NumberAnimation {
+            id: fill
+            target: hold; property: "progress"; to: 1
+            onFinished: if (hold.progress >= 1) { hold.confirmed(); resetTimer.restart() }
+        }
+        NumberAnimation { id: drain; target: hold; property: "progress"; to: 0; duration: 300; easing.type: Easing.OutQuad }
+        Timer { id: resetTimer; interval: 1200; onTriggered: hold.progress = 0 }
+        MouseArea {
+            id: holdArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: hold.begin()
+            onReleased: hold.end()
+            onCanceled: hold.end()
+        }
+    }
+
+    // Small rotating arc.
+    component Spinner: Item {
+        id: sp
+        property color color: Theme.accent
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: "transparent"
+            border.width: 2.5
+            border.color: sp.color
+            opacity: 0.25
+        }
+        Rectangle {
+            width: parent.width / 2; height: parent.height / 2
+            clip: true
+            color: "transparent"
+            Rectangle {
+                width: sp.width; height: sp.height
+                radius: width / 2
+                color: "transparent"
+                border.width: 2.5
+                border.color: sp.color
+            }
+        }
+        RotationAnimation on rotation { from: 0; to: 360; duration: 700; loops: Animation.Infinite; running: sp.visible }
     }
 }

@@ -27,119 +27,138 @@ ApplicationWindow {
     
     property point dragStart: Qt.point(0, 0)
 
-    // Drifting colour glow behind everything (Settings → Appearance).
-    AmbientGlow {
+    // Everything visible lives in windowRoot so ThemeWipe can snapshot it
+    // (the window's own contentItem has no QML engine to grab with).
+    Item {
+        id: windowRoot
         anchors.fill: parent
-    }
 
-    RowLayout {
-        anchors.fill: parent
-        spacing: 0
-        
-        // SIDEBAR NAVIGATION
-        SideBar {
-            id: sideBar
-            Layout.fillHeight: true
-            Layout.preferredWidth: 240
-            
-            onBrowseClicked: viewStack.currentIndex = 0
-            onDownloadsClicked: viewStack.currentIndex = 1
-            onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh() }
-            onUpdatesClicked: { viewStack.currentIndex = 3; updatesView.refresh() }
-            onSettingsClicked: settingsDrawer.isOpen = true
+        Rectangle { anchors.fill: parent; color: Theme.bg }
+
+        // Drifting colour glow behind everything (Settings → Appearance).
+        AmbientGlow {
+            anchors.fill: parent
         }
-        
-        // MAIN CONTENT AREA
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+
+        RowLayout {
+            id: appContent
+            anchors.fill: parent
             spacing: 0
+        
+            // SIDEBAR NAVIGATION
+            SideBar {
+                id: sideBar
+                Layout.fillHeight: true
+                Layout.preferredWidth: 240
             
-            // TITLE BAR (Modified for the new layout)
-            TitleBar {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                
-                onMinimizeClicked: root.showMinimized()
-                onMaximizeClicked: root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
-                onCloseClicked: Qt.quit()
-                onDragStarted: (pos) => root.dragStart = pos
-                onDragMoved: (pos) => { root.x += pos.x - root.dragStart.x; root.y += pos.y - root.dragStart.y }
+                onBrowseClicked: viewStack.currentIndex = 0
+                onDownloadsClicked: viewStack.currentIndex = 1
+                onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh() }
+                onUpdatesClicked: { viewStack.currentIndex = 3; updatesView.refresh() }
+                onSettingsClicked: settingsDrawer.isOpen = true
             }
-            
-            // VIEW STACK — animated page switcher (pages stay alive)
-            Item {
-                id: viewStack
-                property int currentIndex: 0
+        
+            // MAIN CONTENT AREA
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-
-                ViewPane {
-                    id: browsePane
-                    anchors.fill: parent
-                    index: 0; currentIndex: viewStack.currentIndex
-                    BrowseView {
-                        id: browseView
-                        anchors.fill: parent
-                    }
+                spacing: 0
+            
+                // TITLE BAR (Modified for the new layout)
+                TitleBar {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
+                
+                    onMinimizeClicked: root.showMinimized()
+                    onMaximizeClicked: root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
+                    onCloseClicked: Qt.quit()
+                    onDragStarted: (pos) => root.dragStart = pos
+                    onDragMoved: (pos) => { root.x += pos.x - root.dragStart.x; root.y += pos.y - root.dragStart.y }
                 }
+            
+                // VIEW STACK — animated page switcher (pages stay alive)
+                Item {
+                    id: viewStack
+                    property int currentIndex: 0
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
 
-                ViewPane {
-                    anchors.fill: parent
-                    index: 1; currentIndex: viewStack.currentIndex
-                    DownloadsView {
-                        id: downloadsView
+                    ViewPane {
+                        id: browsePane
                         anchors.fill: parent
+                        index: 0; currentIndex: viewStack.currentIndex
+                        BrowseView {
+                            id: browseView
+                            anchors.fill: parent
+                        }
                     }
-                }
 
-                ViewPane {
-                    anchors.fill: parent
-                    index: 2; currentIndex: viewStack.currentIndex
-                    LibraryView {
-                        id: libraryView
+                    ViewPane {
                         anchors.fill: parent
-                        onUpdatesRequested: {
-                            sideBar.activeTab = 3
-                            viewStack.currentIndex = 3
-                            updatesView.refresh()
+                        index: 1; currentIndex: viewStack.currentIndex
+                        DownloadsView {
+                            id: downloadsView
+                            anchors.fill: parent
+                        }
+                    }
+
+                    ViewPane {
+                        anchors.fill: parent
+                        index: 2; currentIndex: viewStack.currentIndex
+                        LibraryView {
+                            id: libraryView
+                            anchors.fill: parent
+                            onUpdatesRequested: {
+                                sideBar.activeTab = 3
+                                viewStack.currentIndex = 3
+                                updatesView.refresh()
+                            }
+                        }
+                    }
+
+                    ViewPane {
+                        anchors.fill: parent
+                        index: 3; currentIndex: viewStack.currentIndex
+                        UpdatesView {
+                            id: updatesView
+                            anchors.fill: parent
                         }
                     }
                 }
-
-                ViewPane {
-                    anchors.fill: parent
-                    index: 3; currentIndex: viewStack.currentIndex
-                    UpdatesView {
-                        id: updatesView
-                        anchors.fill: parent
-                    }
-                }
             }
         }
-    }
     
-    // SETTINGS DRAWER (Global overlay)
-    SettingsDrawer {
-        id: settingsDrawer
-        anchors.fill: parent
-        isOpen: false
-    }
+        // SETTINGS DRAWER (Global overlay)
+        SettingsDrawer {
+            id: settingsDrawer
+            anchors.fill: parent
+            isOpen: false
+            backdropSource: appContent
+        }
+
     
-    // Toast notifications (Fx.toast) sit above everything, drawer included.
-    ToastHost {
-        id: toastHost
-        objectName: "toastHost"
-        anchors.fill: parent
-        z: 100
+        // Toast notifications (Fx.toast) sit above everything, drawer included.
+        ToastHost {
+            id: toastHost
+            objectName: "toastHost"
+            anchors.fill: parent
+            z: 100
+        }
+
+        // Fly-to-downloads bubbles (Fx.flyRequested) arc to the sidebar.
+        Item {
+            id: flyLayer
+            anchors.fill: parent
+            z: 90
+        }
     }
 
-    // Fly-to-downloads bubbles (Fx.flyRequested) arc to the sidebar.
-    Item {
-        id: flyLayer
+    // Circular colour wipe when the theme changes (Settings → Appearance).
+    ThemeWipe {
         anchors.fill: parent
-        z: 90
+        target: windowRoot
+        z: 200
     }
     Component {
         id: flyBubble
