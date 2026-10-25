@@ -29,11 +29,12 @@ def software_rendering() -> bool:
 
 def build_engine(
     on_warnings: Optional[Callable[[list], None]] = None,
+    qml_file: Optional[Path] = None,
 ) -> tuple[QQmlApplicationEngine, dict]:
     """Create the bridges, expose them to QML and load main.qml.
 
     ``on_warnings`` receives every batch of QML warnings (tests use it to
-    fail on any). Returns ``(engine, bridges)``; check
+    fail on any). ``qml_file`` replaces main.qml (tests load fixtures). Returns ``(engine, bridges)``; check
     ``engine.rootObjects()`` for load success.
     """
     engine = QQmlApplicationEngine()
@@ -60,5 +61,5 @@ def build_engine(
     ctx.setContextProperty("SoftwareRendering", software_rendering())
 
     engine.addImportPath(str(QML_DIR))
-    engine.load(QUrl.fromLocalFile(str(QML_DIR / "main.qml")))
+    engine.load(QUrl.fromLocalFile(str(qml_file or QML_DIR / "main.qml")))
     return engine, bridges

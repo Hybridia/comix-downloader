@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Window
 import "components"
 import "views"
+import "fx"
 
 ApplicationWindow {
     id: root
@@ -23,7 +24,12 @@ ApplicationWindow {
     flags: Qt.FramelessWindowHint | Qt.Window
     
     property point dragStart: Qt.point(0, 0)
-    
+
+    // Drifting colour glow behind everything (Settings → Appearance).
+    AmbientGlow {
+        anchors.fill: parent
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0
@@ -97,6 +103,14 @@ ApplicationWindow {
         isOpen: false
     }
     
+    // Toast notifications (Fx.toast) sit above everything, drawer included.
+    ToastHost {
+        id: toastHost
+        objectName: "toastHost"
+        anchors.fill: parent
+        z: 100
+    }
+
     // CONNECTIONS TO PYTHON BRIDGES
     Connections {
         target: LibraryBridge

@@ -56,6 +56,7 @@ class Smoke(unittest.TestCase):
     config: dict | None = None
     library: list | None = None
     pending: dict | None = None
+    qml_file: Path | None = None   # None = gui/qml/main.qml
 
     @classmethod
     def setUpClass(cls):
@@ -63,7 +64,7 @@ class Smoke(unittest.TestCase):
         cls.data_dir = use_temp_data(cls.config, cls.library, cls.pending)
         from gui.app import build_engine
         cls.warnings = []
-        cls.engine, cls.bridges = build_engine(on_warnings=cls.warnings.extend)
+        cls.engine, cls.bridges = build_engine(on_warnings=cls.warnings.extend, qml_file=cls.qml_file)
         if not cls.engine.rootObjects():
             raise RuntimeError("main.qml failed to load: " + "\n".join(w.toString() for w in cls.warnings))
         pump(300)
