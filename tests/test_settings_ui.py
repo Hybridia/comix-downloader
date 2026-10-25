@@ -56,6 +56,12 @@ class SettingsDrawer(Smoke):
         self.assertFalse(self.eval_qml("settingsDrawer.loginBusy"))
         self.assertEqual(self.find("toastHost").property("count"), min(4, before + 1))
 
+    def test_toomics_toast_says_what_happened(self):
+        # Review finding: Clear / Test also toasted "Toomics session saved".
+        self.bridges["settings"].toomicsStatus.emit("ok", "Cleared toomics auth")
+        self.pump(50)
+        self.assertEqual(self.find("toastHost").property("lastText"), "Toomics: Cleared toomics auth")
+
     def test_appearance_toggles_write_settings(self):
         s = self.bridges["settings"]
         self.eval_qml("settingsDrawer.setAmbient(false)")

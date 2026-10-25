@@ -56,6 +56,22 @@ class Shell(Smoke):
         self.assertEqual(self.find("sideBar").property("downloadsCount"), 0)
         self.assertEqual(self.find("toastHost").property("count"), min(4, before + 1))
 
+    def test_cancelled_job_is_not_celebrated(self):
+        # Review finding: cancel → in-flight chapters finish → `finished`
+        # fired and was toasted as a success with confetti.
+        d = self.bridges["download"]
+        d.jobStarted.emit("jcan", "Moby Dick", "", 5)
+        d.chapterComplete.emit("jcan", "c1", True, "")
+        d.jobCancelled.emit("jcan")
+        d.chapterComplete.emit("jcan", "c2", True, "")
+        d.downloadFinished.emit("jcan", 2, 0)
+        self.pump(100)
+        self.assertEqual(self.find("toastHost").property("lastText"), "Cancelled Moby Dick after 2 chapters")
+        self.assertEqual(self.find("toastHost").property("lastKind"), "info")
+        card = "downloadsView.getProgressPanel().cardsByJobId['jcan']"
+        self.assertFalse(self.eval_qml(card + ".flashing"))
+        self.assertEqual(self.find("sideBar").property("downloadsCount"), 0)
+
     def test_fly_bubble_lands(self):
         self.eval_qml("Fx.flyRequested(Qt.point(900, 700), 5)")
         self.pump(100)

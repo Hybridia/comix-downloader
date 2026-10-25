@@ -39,7 +39,7 @@ Item {
             root.loginBusy = false
             root.toomicsStatusLevel = level
             root.toomicsStatusText = message
-            if (level === "ok") Fx.toast("Toomics session saved", "ok")
+            if (level === "ok") Fx.toast("Toomics: " + message, "ok")
             else if (level === "err") toomicsSection.shake()
         }
         function onSettingsChanged() {

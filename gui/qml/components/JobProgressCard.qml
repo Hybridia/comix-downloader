@@ -24,7 +24,7 @@ Rectangle {
     property string currentChapter: ""
     // One glow flash + confetti when the job finishes.
     property bool flashing: false
-    onIsFinishedChanged: if (isFinished) {
+    onIsFinishedChanged: if (isFinished && !isCancelled) {
         flashing = true
         flashAnim.restart()
         burst.burst()

@@ -204,6 +204,9 @@ ApplicationWindow {
     // Downloads badge: chapters still queued or downloading.
     property var dlBadge: Badge.empty()
     property var jobTitles: ({})
+    // Cancelled jobs still emit downloadFinished once their in-flight
+    // chapters complete — that must not read as a success.
+    property var cancelledJobs: ({})
     function _badge(next) { dlBadge = next; sideBar.downloadsCount = Badge.count(next) }
 
     // CONNECTIONS TO PYTHON BRIDGES
@@ -257,7 +260,10 @@ ApplicationWindow {
             root._badge(Badge.jobEnded(root.dlBadge, jobId))
             var title = root.jobTitles[jobId] || "this series"
             delete root.jobTitles[jobId]
-            if (failed > 0)
+            if (root.cancelledJobs[jobId]) {
+                delete root.cancelledJobs[jobId]
+                Fx.toast("Cancelled " + title + " after " + successful + " chapter" + (successful === 1 ? "" : "s"), "info")
+            } else if (failed > 0)
                 Fx.toast("Downloaded " + successful + " of " + title + ", " + failed + " failed", "error")
             else
                 Fx.toast("Downloaded " + successful + " chapter" + (successful === 1 ? "" : "s") + " of " + title, "ok")
@@ -274,7 +280,7 @@ ApplicationWindow {
         }
         function onJobCancelled(jobId) {
             root._badge(Badge.jobEnded(root.dlBadge, jobId))
-            delete root.jobTitles[jobId]
+            root.cancelledJobs[jobId] = true
             downloadsView.getProgressPanel().routeJobCancelled(jobId)
         }
     }

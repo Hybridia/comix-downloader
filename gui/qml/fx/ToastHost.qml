@@ -9,6 +9,9 @@ Item {
     readonly property int maxToasts: 4
     readonly property int lifetime: 3200
     property int _seq: 0
+    // Most recent toast (handy for tests / debugging).
+    property string lastText: ""
+    property string lastKind: ""
 
     ListModel { id: toasts }
 
@@ -20,6 +23,8 @@ Item {
     Connections {
         target: Fx
         function onToastRequested(text, kind) {
+            root.lastText = text
+            root.lastKind = kind || "info"
             toasts.append({ uid: ++root._seq, text: text, kind: kind || "info" })
             while (toasts.count > root.maxToasts) toasts.remove(0)
         }
