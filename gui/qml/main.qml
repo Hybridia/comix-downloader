@@ -6,6 +6,8 @@ import QtQuick.Window
 import "components"
 import "views"
 import "fx"
+import Style
+import "logic/badge.js" as Badge
 
 ApplicationWindow {
     id: root
@@ -65,32 +67,54 @@ ApplicationWindow {
                 onDragMoved: (pos) => { root.x += pos.x - root.dragStart.x; root.y += pos.y - root.dragStart.y }
             }
             
-            // VIEW STACK
-            StackLayout {
+            // VIEW STACK — animated page switcher (pages stay alive)
+            Item {
                 id: viewStack
+                property int currentIndex: 0
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: 0
-                
-                BrowseView {
-                    id: browseView
-                }
+                clip: true
 
-                DownloadsView {
-                    id: downloadsView
-                }
-
-                LibraryView {
-                    id: libraryView
-                    onUpdatesRequested: {
-                        sideBar.activeTab = 3
-                        viewStack.currentIndex = 3
-                        updatesView.refresh()
+                ViewPane {
+                    id: browsePane
+                    anchors.fill: parent
+                    index: 0; currentIndex: viewStack.currentIndex
+                    BrowseView {
+                        id: browseView
+                        anchors.fill: parent
                     }
                 }
 
-                UpdatesView {
-                    id: updatesView
+                ViewPane {
+                    anchors.fill: parent
+                    index: 1; currentIndex: viewStack.currentIndex
+                    DownloadsView {
+                        id: downloadsView
+                        anchors.fill: parent
+                    }
+                }
+
+                ViewPane {
+                    anchors.fill: parent
+                    index: 2; currentIndex: viewStack.currentIndex
+                    LibraryView {
+                        id: libraryView
+                        anchors.fill: parent
+                        onUpdatesRequested: {
+                            sideBar.activeTab = 3
+                            viewStack.currentIndex = 3
+                            updatesView.refresh()
+                        }
+                    }
+                }
+
+                ViewPane {
+                    anchors.fill: parent
+                    index: 3; currentIndex: viewStack.currentIndex
+                    UpdatesView {
+                        id: updatesView
+                        anchors.fill: parent
+                    }
                 }
             }
         }
@@ -111,11 +135,68 @@ ApplicationWindow {
         z: 100
     }
 
+    // Fly-to-downloads bubbles (Fx.flyRequested) arc to the sidebar.
+    Item {
+        id: flyLayer
+        anchors.fill: parent
+        z: 90
+    }
+    Component {
+        id: flyBubble
+        Rectangle {
+            id: bubble
+            property point from
+            property point to
+            property int count: 0
+            width: 30; height: 30; radius: 15
+            x: from.x - 15; y: from.y - 15
+            color: Theme.accent
+            border.color: Theme.highlight
+            Text {
+                anchors.centerIn: parent
+                text: bubble.count
+                font.pixelSize: 12; font.weight: Font.Black
+                color: Theme.bg
+            }
+            ParallelAnimation {
+                running: true
+                NumberAnimation { target: bubble; property: "x"; to: bubble.to.x - 15; duration: Theme.dur(900); easing.type: Easing.InOutQuad }
+                SequentialAnimation {
+                    NumberAnimation { target: bubble; property: "y"; to: Math.min(bubble.from.y, bubble.to.y) - 160; duration: Theme.dur(420); easing.type: Easing.OutQuad }
+                    NumberAnimation { target: bubble; property: "y"; to: bubble.to.y - 15; duration: Theme.dur(480); easing.type: Easing.InQuad }
+                }
+                SequentialAnimation {
+                    NumberAnimation { target: bubble; property: "scale"; to: 1.4; duration: Theme.dur(420); easing.type: Easing.OutQuad }
+                    NumberAnimation { target: bubble; property: "scale"; to: 0.4; duration: Theme.dur(480); easing.type: Easing.InQuad }
+                }
+                onFinished: { sideBar.bumpDownloads(); bubble.destroy() }
+            }
+        }
+    }
+    Connections {
+        target: Fx
+        function onFlyRequested(from, count) {
+            var a = sideBar.downloadsAnchor
+            var to = a.mapToItem(flyLayer, a.width - 40, a.height / 2)
+            flyBubble.createObject(flyLayer, { from: from, to: to, count: count })
+        }
+    }
+
+    // Downloads badge: chapters still queued or downloading.
+    property var dlBadge: Badge.empty()
+    property var jobTitles: ({})
+    function _badge(next) { dlBadge = next; sideBar.downloadsCount = Badge.count(next) }
+
     // CONNECTIONS TO PYTHON BRIDGES
     Connections {
         target: LibraryBridge
         function onPendingUpdatesChanged() {
             sideBar.updatesCount = LibraryBridge.pendingUpdates().length
+        }
+        function onUpdateCheckFinished(withUpdates, upToDate, failed, skipped, noFiles) {
+            Fx.toast(withUpdates > 0
+                ? "Check finished — " + withUpdates + " series " + (withUpdates === 1 ? "has" : "have") + " new chapters"
+                : "Check finished — everything is up to date", withUpdates > 0 ? "ok" : "info")
         }
     }
     Connections {
@@ -136,6 +217,8 @@ ApplicationWindow {
             viewStack.currentIndex = 1
         }
         function onJobStarted(jobId, title, posterUrl, totalChapters) {
+            root.jobTitles[jobId] = title
+            root._badge(Badge.jobStarted(root.dlBadge, jobId, totalChapters))
             downloadsView.getProgressPanel().registerJob(jobId, title, posterUrl, totalChapters)
         }
         function onOverallProgress(jobId, current, total) {
@@ -148,15 +231,31 @@ ApplicationWindow {
             downloadsView.getProgressPanel().routeChapterProgress(jobId, name, current, total)
         }
         function onChapterComplete(jobId, name, success, message) {
+            root._badge(Badge.chapterDone(root.dlBadge, jobId))
             downloadsView.getProgressPanel().routeChapterComplete(jobId, name, success, message)
         }
         function onDownloadFinished(jobId, successful, failed) {
+            root._badge(Badge.jobEnded(root.dlBadge, jobId))
+            var title = root.jobTitles[jobId] || "this series"
+            delete root.jobTitles[jobId]
+            if (failed > 0)
+                Fx.toast("Downloaded " + successful + " of " + title + ", " + failed + " failed", "error")
+            else
+                Fx.toast("Downloaded " + successful + " chapter" + (successful === 1 ? "" : "s") + " of " + title, "ok")
             downloadsView.getProgressPanel().routeJobFinished(jobId, successful, failed)
         }
         function onJobPaused(jobId, paused) {
             downloadsView.getProgressPanel().routeJobPaused(jobId, paused)
         }
+        function onJobError(jobId, message) {
+            root._badge(Badge.jobEnded(root.dlBadge, jobId))
+            var title = root.jobTitles[jobId] || "a series"
+            delete root.jobTitles[jobId]
+            Fx.toast("Download of " + title + " failed: " + message, "error")
+        }
         function onJobCancelled(jobId) {
+            root._badge(Badge.jobEnded(root.dlBadge, jobId))
+            delete root.jobTitles[jobId]
             downloadsView.getProgressPanel().routeJobCancelled(jobId)
         }
     }
