@@ -34,7 +34,7 @@ Item {
                 id: mangaCardComp
                 Layout.preferredWidth: 280
                 Layout.fillHeight: true
-                visible: manga !== null
+                visible: manga !== null || loading
                 manga: null
             }
             

@@ -90,6 +90,14 @@ class Smoke(unittest.TestCase):
     def pump(self, ms: int) -> None:
         pump(ms)
 
+    def call(self, obj: QObject, method: str, *args):
+        """Invoke a QML function on ``obj`` (args passed as QVariant)."""
+        from PyQt6.QtCore import QMetaObject, Q_ARG, Q_RETURN_ARG, Qt
+        qargs = [Q_ARG("QVariant", a) for a in args]
+        ok = QMetaObject.invokeMethod(obj, method, Qt.ConnectionType.DirectConnection,
+                                      Q_RETURN_ARG("QVariant"), *qargs)
+        return ok
+
     def eval_qml(self, expr: str):
         # The root object's own context carries main.qml's imports (Style).
         ctx = self.engine.contextForObject(self.root())
