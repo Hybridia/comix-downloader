@@ -2,6 +2,8 @@ import QtQuick
 import Style
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../fx"
+import "../logic/motion.js" as Motion
 
 // Review-before-download for library updates.
 //
@@ -31,6 +33,8 @@ Item {
     property var expandedGaps: ({})
 
     property bool checking: false
+    // Chapters currently ticked across all series (Download button).
+    readonly property int applyCount: (selVersion, totals().chapters)
     property int checkDone: 0
     property int checkTotal: 0
     property string checkTitle: ""
@@ -219,31 +223,34 @@ Item {
                 }
             }
 
-            Button {
+            FxButton {
                 id: applyBtn
                 readonly property var t: updatesView.totals()
                 Layout.preferredHeight: 34
+                Layout.preferredWidth: applyRow.implicitWidth + 30
                 enabled: t.chapters > 0
-                text: t.chapters > 0
-                      ? ("⬇ Download " + t.chapters + " chapter" + (t.chapters === 1 ? "" : "s")
-                         + " (" + t.series + " series)")
-                      : "⬇ Download selected"
+                fontSize: 12
+                text: ""
                 onClicked: updatesView.applySelected()
-                background: Rectangle {
-                    radius: 6
-                    color: parent.enabled
-                           ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : Theme.border
-                }
-                contentItem: Text {
-                    text: parent.text
-                    color: parent.enabled ? Theme.surface : textTertiary
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: 14
-                    rightPadding: 14
+                Row {
+                    id: applyRow
+                    anchors.centerIn: parent
+                    spacing: 0
+                    Text { text: "⬇ Download "; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.bg }
+                    CountUpText {
+                        objectName: "applyCountText"
+                        visible: applyBtn.t.chapters > 0
+                        value: updatesView.applyCount
+                        duration: 400
+                        font.pixelSize: 12; font.weight: Font.Black
+                        color: Theme.bg
+                    }
+                    Text {
+                        text: applyBtn.t.chapters > 0
+                              ? " chapter" + (applyBtn.t.chapters === 1 ? "" : "s") + " (" + applyBtn.t.series + " series)"
+                              : "selected"
+                        font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.bg
+                    }
                 }
             }
         }
@@ -366,6 +373,34 @@ Item {
         }
 
         // ── Series list ──────────────────────────────────────────────
+        // Shimmering placeholders while a check runs and nothing is listed yet.
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            visible: updatesView.checking && updatesView.items.length === 0
+            Repeater {
+                model: 3
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 92
+                    radius: 10
+                    color: bgCard
+                    border.color: borderColor
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 10
+                        Skeleton { Layout.preferredWidth: 220; Layout.preferredHeight: 16 }
+                        Skeleton { Layout.preferredWidth: 140; Layout.preferredHeight: 10 }
+                        Row {
+                            spacing: 6
+                            Repeater { model: 4; Skeleton { width: 58; height: 22; radius: 11 } }
+                        }
+                    }
+                }
+            }
+        }
+
         ScrollView {
             id: scroller
             Layout.fillWidth: true
@@ -384,6 +419,19 @@ Item {
                     delegate: Rectangle {
                         id: card
                         required property var modelData
+                        required property int index
+                        transform: Translate { id: cardShift }
+                        Component.onCompleted: if (Theme.animations && index < 16) cardIn.start()
+                        SequentialAnimation {
+                            id: cardIn
+                            PropertyAction { target: cardShift; property: "y"; value: 24 }
+                            PropertyAction { target: card; property: "scale"; value: 0.96 }
+                            PauseAnimation { duration: Motion.staggerDelay(card.index) }
+                            ParallelAnimation {
+                                NumberAnimation { target: cardShift; property: "y"; to: 0; duration: Theme.dur(550); easing.type: Easing.OutQuint }
+                                NumberAnimation { target: card; property: "scale"; to: 1; duration: Theme.dur(550); easing.type: Easing.OutQuint }
+                            }
+                        }
                         readonly property var item: modelData
                         readonly property string url: item.library_url
                         readonly property var s: (updatesView.selVersion, updatesView.sel[url] || { include: false, source: -1, picked: {} })
@@ -584,6 +632,22 @@ Item {
                                 required property var modelData
                                 readonly property bool picked:
                                     (updatesView.selVersion, !!card.s.picked[modelData.norm])
+                                onPickedChanged: if (picked && Theme.animations) chipPop.restart()
+                                SequentialAnimation {
+                                    id: chipPop
+                                    NumberAnimation { target: chip; property: "scale"; from: 0.8; to: 1.15; duration: Theme.dur(150); easing.type: Easing.OutQuad }
+                                    NumberAnimation { target: chip; property: "scale"; to: 1; duration: Theme.dur(250); easing.type: Easing.OutBack }
+                                }
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: -3
+                                    radius: parent.radius + 3
+                                    color: "transparent"
+                                    border.width: 3
+                                    border.color: Theme.glow
+                                    opacity: chip.picked ? 0.7 : 0
+                                    Behavior on opacity { NumberAnimation { duration: Theme.dur(250) } }
+                                }
                                 height: 24
                                 width: chipText.implicitWidth + 18
                                 radius: 12

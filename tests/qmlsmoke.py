@@ -35,6 +35,8 @@ def use_temp_data(config: dict | None = None, library: list | None = None,
     (d / "config.json").write_text(json.dumps(config or {}), encoding="utf-8")
     (d / "library.json").write_text(
         json.dumps({"version": lib._SCHEMA_VERSION, "entries": library or []}), encoding="utf-8")
+    if pending and "items" not in pending:
+        pending = {"checked_at": "", "items": pending}
     (d / "pending_updates.json").write_text(json.dumps(pending or {}), encoding="utf-8")
     cfg._DEFAULT_CONFIG_PATH = d / "config.json"
     lib._DEFAULT_PATH = d / "library.json"

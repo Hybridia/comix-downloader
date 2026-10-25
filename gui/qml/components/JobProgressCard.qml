@@ -2,6 +2,7 @@ import QtQuick
 import Style
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../fx"
 
 // One card per active download. Owns its own ListModel of active
 // chapter rows. The parent ProgressPanel creates one per `jobStarted`
@@ -21,6 +22,43 @@ Rectangle {
     property bool isPaused: false
     property bool isCancelled: false
     property string currentChapter: ""
+    // One glow flash + confetti when the job finishes.
+    property bool flashing: false
+    onIsFinishedChanged: if (isFinished) {
+        flashing = true
+        flashAnim.restart()
+        burst.burst()
+    }
+
+    // Rise in when the card is created.
+    transform: Translate { id: riseShift }
+    Component.onCompleted: if (Theme.animations) riseAnim.start()
+    SequentialAnimation {
+        id: riseAnim
+        PropertyAction { target: card; property: "opacity"; value: 0 }
+        PropertyAction { target: riseShift; property: "y"; value: 24 }
+        ParallelAnimation {
+            NumberAnimation { target: card; property: "opacity"; to: 1; duration: Theme.dur(450); easing.type: Easing.OutQuint }
+            NumberAnimation { target: riseShift; property: "y"; to: 0; duration: Theme.dur(550); easing.type: Easing.OutBack }
+        }
+    }
+    Rectangle {
+        id: flashRing
+        anchors.fill: parent
+        anchors.margins: -4
+        radius: card.radius + 4
+        color: "transparent"
+        border.width: 4
+        border.color: Theme.success
+        opacity: 0
+    }
+    SequentialAnimation {
+        id: flashAnim
+        NumberAnimation { target: flashRing; property: "opacity"; to: 0.8; duration: Theme.dur(250) }
+        NumberAnimation { target: flashRing; property: "opacity"; to: 0; duration: Theme.dur(750); easing.type: Easing.OutQuad }
+        ScriptAction { script: card.flashing = false }
+    }
+    ParticleBurst { id: burst; anchors.fill: parent; z: 20 }
 
     // Theme — kept inline so the component is drop-in self-contained.
     readonly property color bgCard: Theme.card
@@ -229,24 +267,65 @@ Rectangle {
 
         // PER-JOB OVERALL PROGRESS BAR
         Rectangle {
+            id: barTrack
             Layout.fillWidth: true
-            Layout.preferredHeight: 6
+            Layout.preferredHeight: 8
             color: bgElevated
-            radius: 3
+            radius: 4
+            // soft glow under the fill
             Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height + 6
+                width: barFill.width
+                radius: height / 2
+                color: card.isFinished ? Qt.rgba(card.success.r, card.success.g, card.success.b, 0.35) : Theme.glow
+                opacity: barFill.width > 0 ? 0.6 : 0
+            }
+            Item {
+                id: barFill
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: card.totalChapters > 0
                     ? parent.width * (card.completedChapters / card.totalChapters)
                     : 0
-                radius: 3
-                gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: card.isFinished ? success : accentPrimary }
-                    GradientStop { position: 1.0; color: card.isFinished ? "#8BC34A" : accentHighlight }
+                clip: true
+                Behavior on width { NumberAnimation { duration: Theme.dur(350); easing.type: Easing.OutQuint } }
+                // Flowing gradient: twice the track width, sliding left.
+                Rectangle {
+                    width: barTrack.width * 2
+                    height: parent.height
+                    radius: 4
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: card.isFinished ? card.success : Theme.accent2 }
+                        GradientStop { position: 0.25; color: card.isFinished ? "#8BC34A" : Theme.accent }
+                        GradientStop { position: 0.5; color: card.isFinished ? card.success : Theme.highlight }
+                        GradientStop { position: 0.75; color: card.isFinished ? "#8BC34A" : Theme.accent }
+                        GradientStop { position: 1.0; color: card.isFinished ? card.success : Theme.accent2 }
+                    }
+                    NumberAnimation on x {
+                        from: 0; to: -barTrack.width
+                        duration: 1600; loops: Animation.Infinite
+                        running: Theme.animations && !card.isFinished && !card.isPaused
+                    }
                 }
-                Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                // Moving shimmer
+                Rectangle {
+                    width: 50; height: parent.height
+                    visible: Theme.animations && !card.isFinished && !card.isPaused
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "transparent" }
+                        GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.55) }
+                        GradientStop { position: 1; color: "transparent" }
+                    }
+                    NumberAnimation on x {
+                        from: -50; to: barTrack.width
+                        duration: 1300; loops: Animation.Infinite
+                        running: Theme.animations && !card.isFinished && !card.isPaused
+                    }
+                }
             }
         }
 
@@ -261,10 +340,29 @@ Rectangle {
             Repeater {
                 model: taskModel
                 delegate: ColumnLayout {
+                    id: chRow
                     Layout.fillWidth: true
                     spacing: 2
+                    transform: Translate { id: chShift }
+                    Component.onCompleted: if (Theme.animations) chIn.start()
+                    SequentialAnimation {
+                        id: chIn
+                        PropertyAction { target: chRow; property: "opacity"; value: 0 }
+                        PropertyAction { target: chShift; property: "y"; value: -8 }
+                        ParallelAnimation {
+                            NumberAnimation { target: chRow; property: "opacity"; to: 1; duration: Theme.dur(400) }
+                            NumberAnimation { target: chShift; property: "y"; to: 0; duration: Theme.dur(450); easing.type: Easing.OutQuint }
+                        }
+                    }
                     RowLayout {
                         Layout.fillWidth: true
+                        PulseRings {
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            running: model.status === "Preparing"
+                            visible: running
+                            color: accentPrimary
+                        }
                         Text {
                             text: model.name
                             font.pixelSize: 11
@@ -298,7 +396,8 @@ Rectangle {
                                 : model.status === "Preparing" ? textSecondary
                                 : accentPrimary
                             opacity: model.status === "Preparing" ? 0.4 : 1.0
-                            Behavior on width { NumberAnimation { duration: 150 } }
+                            Behavior on width { NumberAnimation { duration: Theme.dur(250); easing.type: Easing.OutQuint } }
+                            Behavior on color { ColorAnimation { duration: Theme.dur(350) } }
                         }
                     }
                 }
