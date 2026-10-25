@@ -2,6 +2,8 @@ import QtQuick
 import Style
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../fx"
+import "../logic/motion.js" as Motion
 
 Rectangle {
     id: root
@@ -15,6 +17,88 @@ Rectangle {
     // summary) — drives the inline "N new … [Download]" row.
     property var checkInfo: null
     readonly property bool hasNewChapters: !!checkInfo && checkInfo.new_count > 0
+
+    // ── Motion ─────────────────────────────────────────────────────
+    // ≥0 → rise in with a stagger when created (set by LibraryView).
+    property int entranceIndex: -1
+    // Cover flipped to its info side (ⓘ button).
+    property bool flipped: false
+    // "Downloaded N new chapters" just landed → check draws + confetti.
+    property bool celebrating: false
+    property real tiltX: 0
+    property real tiltY: 0
+    function toggleFlip() { flipped = !flipped }
+    function hoverLeft() { flipped = false; tiltX = 0; tiltY = 0 }
+    function celebrate() {
+        celebrating = true
+        burst.burst()
+        celebrateTimer.restart()
+    }
+    onStatusMessageChanged: if (statusMessage.indexOf("Downloaded ") === 0) celebrate()
+    Timer { id: celebrateTimer; interval: 6000; onTriggered: root.celebrating = false }
+    readonly property bool working: statusMessage.indexOf("Checking") === 0
+                                    || statusMessage.indexOf("Downloading") === 0
+                                    || statusMessage.indexOf("Packing") === 0
+
+    Component.onCompleted: if (entranceIndex >= 0 && Theme.animations) rise.start()
+    SequentialAnimation {
+        id: rise
+        PropertyAction { target: root; property: "opacity"; value: 0 }
+        PropertyAction { target: riseShift; property: "y"; value: 28 }
+        PropertyAction { target: root; property: "scale"; value: 0.94 }
+        PauseAnimation { duration: Motion.staggerDelay(Math.max(0, root.entranceIndex)) }
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "opacity"; to: 1; duration: Theme.dur(550); easing.type: Easing.OutQuint }
+            NumberAnimation { target: riseShift; property: "y"; to: 0; duration: Theme.dur(650); easing.type: Easing.OutQuint }
+            NumberAnimation { target: root; property: "scale"; to: 1; duration: Theme.dur(650); easing.type: Easing.OutQuint }
+        }
+    }
+
+    // Gentle 3D tilt toward the cursor (cards are wide, so small angles).
+    transform: [
+        Translate { id: riseShift },
+        Translate {
+            y: cardHover.hovered ? -2 : 0
+            Behavior on y { NumberAnimation { duration: Theme.dur(250); easing.type: Easing.OutQuint } }
+        },
+        Rotation {
+            origin.x: root.width / 2; origin.y: root.height / 2
+            axis { x: 0; y: 1; z: 0 }
+            angle: root.tiltY
+            Behavior on angle { NumberAnimation { duration: Theme.dur(200); easing.type: Easing.OutQuad } }
+        },
+        Rotation {
+            origin.x: root.width / 2; origin.y: root.height / 2
+            axis { x: 1; y: 0; z: 0 }
+            angle: root.tiltX
+            Behavior on angle { NumberAnimation { duration: Theme.dur(200); easing.type: Easing.OutQuad } }
+        }
+    ]
+    HoverHandler {
+        id: cardHover
+        onPointChanged: {
+            if (!hovered || !Theme.animations) return
+            root.tiltY = (point.position.x / root.width - 0.5) * 3
+            root.tiltX = -(point.position.y / root.height - 0.5) * 5
+        }
+        onHoveredChanged: if (!hovered) root.hoverLeft()
+    }
+    // Accent glow ring on hover
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: root.radius + 3
+        color: "transparent"
+        border.width: 3
+        border.color: Theme.glow
+        opacity: cardHover.hovered ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.dur(300) } }
+    }
+    ParticleBurst {
+        id: burst
+        anchors.fill: parent
+        z: 50
+    }
 
     signal updateRequested()
     signal removeRequested()
@@ -78,8 +162,9 @@ Rectangle {
 
     color: bgCard
     radius: 10
-    border.color: selected ? Qt.darker(accentPrimary, 1.4) : Theme.border
+    border.color: cardHover.hovered ? accentPrimary : selected ? Qt.darker(accentPrimary, 1.4) : Theme.border
     border.width: 1
+    Behavior on border.color { ColorAnimation { duration: Theme.dur(250) } }
 
     Layout.fillWidth: true
     // Make room for the optional "Convert to CBZ" button when the
@@ -117,60 +202,139 @@ Rectangle {
         anchors.margins: 14
         spacing: 14
 
-        // POSTER
-        Rectangle {
+        // POSTER — flips to an info side via the ⓘ button
+        Item {
             Layout.preferredWidth: 78
             Layout.preferredHeight: 104
-            color: bgElevated
-            radius: 6
-            clip: true
 
-            Image {
+            Flipable {
+                id: flip
                 anchors.fill: parent
-                source: entry && entry.poster_url ? entry.poster_url : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
+
+                front: Rectangle {
+                    anchors.fill: parent
+                    color: bgElevated
+                    radius: 6
+                    clip: true
+
+                    Image {
+                        anchors.fill: parent
+                        source: entry && entry.poster_url ? entry.poster_url : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "📕"
+                        font.pixelSize: 28
+                        color: textTertiary
+                        visible: !entry || !entry.poster_url
+                    }
+
+                    // Selection checkbox — always visible (subtle when off) so
+                    // it's discoverable; toggles inclusion in "Check selected".
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.margins: 5
+                        width: 22; height: 22; radius: 5
+                        color: root.selected ? accentPrimary
+                               : (selectMa.containsMouse ? Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.8) : Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.6))
+                        border.width: 1
+                        border.color: root.selected ? accentPrimary : Theme.textSecondary
+                        Text {
+                            anchors.centerIn: parent
+                            visible: root.selected
+                            text: "✓"
+                            color: Theme.surface
+                            font.pixelSize: 14
+                            font.weight: Font.Bold
+                        }
+                        MouseArea {
+                            id: selectMa
+                    anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.selectToggled()
+                        }
+                        ToolTip.visible: selectMa.containsMouse
+                        ToolTip.delay: 600
+                        ToolTip.text: root.selected ? "Selected for “Check selected”"
+                                                    : "Select to check this series for updates"
+                    }
+                }
+
+                back: Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: bgElevated
+                    border.color: accentPrimary
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        spacing: 2
+                        Text { text: entry ? (entry.chapter_count || 0) + " ch" : ""; font.pixelSize: 13; font.weight: Font.Bold; color: accentPrimary }
+                        Text { text: entry ? (entry.source || "") : ""; font.pixelSize: 9; color: textSecondary; elide: Text.ElideRight; Layout.fillWidth: true }
+                        Text { text: _statusGlyph(root.statusKey) + " " + _statusLabel(root.statusKey); font.pixelSize: 9; color: _statusColor(root.statusKey) }
+                        Item { Layout.fillHeight: true }
+                        Text { text: "last"; font.pixelSize: 8; color: textTertiary }
+                        Text { text: entry ? shortDate(entry.last_updated_at) : ""; font.pixelSize: 9; color: textSecondary }
+                    }
+                }
+
+                transform: Rotation {
+                    origin.x: flip.width / 2; origin.y: flip.height / 2
+                    axis { x: 0; y: 1; z: 0 }
+                    angle: root.flipped ? 180 : 0
+                    Behavior on angle { NumberAnimation { duration: Theme.dur(800); easing.type: Easing.OutBack } }
+                }
             }
 
-            Text {
-                anchors.centerIn: parent
-                text: "📕"
-                font.pixelSize: 28
-                color: textTertiary
-                visible: !entry || !entry.poster_url
+            // Light sweep across the cover on hover
+            Item {
+                anchors.fill: parent
+                clip: true
+                visible: Theme.animations && !root.flipped
+                Rectangle {
+                    width: 30; height: parent.height * 1.6
+                    y: -parent.height * 0.3
+                    rotation: 18
+                    x: cardHover.hovered ? parent.width + 30 : -60
+                    Behavior on x { NumberAnimation { duration: cardHover.hovered ? Theme.dur(900) : 0; easing.type: Easing.OutQuint } }
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "transparent" }
+                        GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.35) }
+                        GradientStop { position: 1; color: "transparent" }
+                    }
+                }
             }
 
-            // Selection checkbox — always visible (subtle when off) so
-            // it's discoverable; toggles inclusion in "Check selected".
+            // ⓘ — flip the cover
             Rectangle {
-                anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: 5
-                width: 22; height: 22; radius: 5
-                color: root.selected ? accentPrimary
-                       : (selectMa.containsMouse ? Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.8) : Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.6))
-                border.width: 1
-                border.color: root.selected ? accentPrimary : Theme.textSecondary
+                width: 20; height: 20; radius: 10
+                color: infoMa.containsMouse || root.flipped ? accentPrimary : Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.75)
+                border.color: root.flipped ? accentPrimary : Theme.textSecondary
+                scale: infoMa.pressed ? 0.85 : 1
+                Behavior on scale { NumberAnimation { duration: Theme.dur(250); easing.type: Easing.OutBack } }
                 Text {
                     anchors.centerIn: parent
-                    visible: root.selected
-                    text: "✓"
-                    color: Theme.surface
-                    font.pixelSize: 14
-                    font.weight: Font.Bold
+                    text: "i"
+                    font.pixelSize: 11; font.weight: Font.Black; font.italic: true
+                    color: infoMa.containsMouse || root.flipped ? Theme.bg : textPrimary
                 }
                 MouseArea {
-                    id: selectMa
+                    id: infoMa
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.selectToggled()
+                    onClicked: root.toggleFlip()
                 }
-                ToolTip.visible: selectMa.containsMouse
-                ToolTip.delay: 600
-                ToolTip.text: root.selected ? "Selected for “Check selected”"
-                                            : "Select to check this series for updates"
             }
         }
 
@@ -286,34 +450,65 @@ Rectangle {
 
                     Menu {
                         id: statusMenu
+                        transformOrigin: Popup.TopLeft
+                        palette.window: Theme.elevated
+                        palette.base: Theme.elevated
+                        palette.button: Theme.elevated
+                        palette.windowText: Theme.textPrimary
+                        palette.text: Theme.textPrimary
+                        palette.buttonText: Theme.textPrimary
+                        palette.highlight: Theme.accent
+                        palette.highlightedText: Theme.bg
+                        palette.mid: Theme.border
+                        background: Rectangle {
+                            implicitWidth: 220
+                            color: Theme.elevated
+                            border.color: Theme.border
+                            radius: 10
+                        }
+                        enter: Transition {
+                            ParallelAnimation {
+                                NumberAnimation { property: "scale"; from: 0.6; to: 1; duration: Theme.dur(350); easing.type: Easing.OutBack }
+                                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.dur(200) }
+                            }
+                        }
+                        exit: Transition {
+                            NumberAnimation { property: "opacity"; to: 0; duration: Theme.dur(150) }
+                        }
 
                         // Header item showing what auto-tracking sees
                         // (greyed out, non-clickable).
-                        MenuItem {
+                        StaggerItem {
+                            order: 0
                             text: root.statusAuto
                                 ? "From site: " + _statusLabel(root.statusAuto)
                                 : "Site doesn't report status"
                             enabled: false
                         }
                         MenuSeparator {}
-                        MenuItem {
+                        StaggerItem {
+                            order: 1
                             text: "Mark as Completed"
                             onTriggered: root.statusChangeRequested("completed", true)
                         }
-                        MenuItem {
+                        StaggerItem {
+                            order: 2
                             text: "Mark as Ongoing"
                             onTriggered: root.statusChangeRequested("ongoing", true)
                         }
-                        MenuItem {
+                        StaggerItem {
+                            order: 3
                             text: "Mark as Hiatus"
                             onTriggered: root.statusChangeRequested("hiatus", true)
                         }
-                        MenuItem {
+                        StaggerItem {
+                            order: 4
                             text: "Mark as Cancelled"
                             onTriggered: root.statusChangeRequested("cancelled", true)
                         }
                         MenuSeparator {}
-                        MenuItem {
+                        StaggerItem {
+                            order: 5
                             text: root.statusManual
                                 ? "Use site status (clear override)"
                                 : "Clear status"
@@ -328,19 +523,37 @@ Rectangle {
                 Item { Layout.fillWidth: true }
             }
 
-            Text {
+            RowLayout {
                 Layout.fillWidth: true
-                text: {
-                    if (root.statusMessage) return root.statusMessage
-                    if (!entry) return ""
-                    return "Updated " + shortDate(entry.last_updated_at)
-                         + (entry.last_checked_at
-                            ? "  •  Checked " + shortDate(entry.last_checked_at)
-                            : "")
+                spacing: 6
+                Spinner {
+                    Layout.preferredWidth: 12; Layout.preferredHeight: 12
+                    visible: root.working
+                    color: accentPrimary
                 }
-                font.pixelSize: 11
-                color: root.statusMessage ? accentPrimary : textTertiary
-                elide: Text.ElideRight
+                // ✓ that draws itself left → right when a download lands
+                Item {
+                    Layout.preferredWidth: root.celebrating ? 14 : 0
+                    Layout.preferredHeight: 14
+                    clip: true
+                    Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.dur(450); easing.type: Easing.OutQuint } }
+                    Text { text: "✓"; font.pixelSize: 13; font.weight: Font.Black; color: success; anchors.verticalCenter: parent.verticalCenter }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        if (root.statusMessage) return root.statusMessage
+                        if (!entry) return ""
+                        return "Updated " + shortDate(entry.last_updated_at)
+                             + (entry.last_checked_at
+                                ? "  •  Checked " + shortDate(entry.last_checked_at)
+                                : "")
+                    }
+                    font.pixelSize: 11
+                    color: root.celebrating ? success : root.statusMessage ? accentPrimary : textTertiary
+                    Behavior on color { ColorAnimation { duration: Theme.dur(300) } }
+                    elide: Text.ElideRight
+                }
             }
 
             // NEW CHAPTERS — shown after this card's Check found some.
@@ -351,6 +564,12 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
                 visible: root.hasNewChapters
+                onVisibleChanged: if (visible && Theme.animations) newPop.restart()
+                transform: Scale { id: newRowScale; origin.x: 0; origin.y: 15 }
+                SequentialAnimation {
+                    id: newPop
+                    NumberAnimation { target: newRowScale; properties: "xScale,yScale"; from: 0.4; to: 1; duration: 600; easing.type: Easing.OutBack }
+                }
                 spacing: 10
 
                 Text {
@@ -507,9 +726,35 @@ Rectangle {
 
                     Menu {
                         id: overflowMenu
+                        transformOrigin: Popup.TopLeft
+                        palette.window: Theme.elevated
+                        palette.base: Theme.elevated
+                        palette.button: Theme.elevated
+                        palette.windowText: Theme.textPrimary
+                        palette.text: Theme.textPrimary
+                        palette.buttonText: Theme.textPrimary
+                        palette.highlight: Theme.accent
+                        palette.highlightedText: Theme.bg
+                        palette.mid: Theme.border
+                        background: Rectangle {
+                            implicitWidth: 220
+                            color: Theme.elevated
+                            border.color: Theme.border
+                            radius: 10
+                        }
+                        enter: Transition {
+                            ParallelAnimation {
+                                NumberAnimation { property: "scale"; from: 0.6; to: 1; duration: Theme.dur(350); easing.type: Easing.OutBack }
+                                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.dur(200) }
+                            }
+                        }
+                        exit: Transition {
+                            NumberAnimation { property: "opacity"; to: 0; duration: Theme.dur(150) }
+                        }
                         Repeater {
                             model: Math.max(0, root.alternativeSources.length - 3)
-                            MenuItem {
+                            StaggerItem {
+                                order: 6
                                 required property int index
                                 readonly property var alt:
                                     root.alternativeSources[index + 3]
@@ -535,36 +780,38 @@ Rectangle {
             // — leaving only the left edge of every button visible.
             // 170px fits the Folder+Website side-by-side row without
             // text truncation; below ~150 they degrade to "Fol…".
-            Layout.preferredWidth: 170
+            Layout.preferredWidth: 300
+            Layout.maximumWidth: 300
             Layout.minimumWidth: 170
             Layout.fillHeight: true
             spacing: 6
 
-            Button {
+            // "Check for new" squeezes into a spinner while checking.
+            Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
-                text: root.busy ? "Checking…" : "Check for new"
-                enabled: !root.busy && entry
-                onClicked: root.updateRequested()
-                ToolTip.visible: hovered && !root.busy
-                ToolTip.delay: 600
-                ToolTip.text: "Look for new chapters on this series now.\n" +
-                              "Shows what's new here — nothing downloads until you click Download."
-
-                background: Rectangle {
-                    radius: 6
-                    color: parent.enabled
-                           ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : Theme.border
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                FxButton {
+                    id: checkBtn
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: parent.height
+                    width: root.busy ? 32 : parent.width
+                    radius: root.busy ? 16 : 7
+                    text: root.busy ? "" : "Check for new"
+                    fontSize: 12
+                    enabled: !root.busy && !!entry
+                    onClicked: root.updateRequested()
+                    Behavior on width { NumberAnimation { duration: Theme.dur(450); easing.type: Easing.OutQuint } }
+                    Behavior on radius { NumberAnimation { duration: Theme.dur(450) } }
+                    ToolTip.visible: hovered && !root.busy
+                    ToolTip.delay: 600
+                    ToolTip.text: "Look for new chapters on this series now.\n" +
+                                  "Shows what's new here — nothing downloads until you click Download."
                 }
-                contentItem: Text {
-                    text: parent.text
-                    color: parent.enabled ? Theme.surface : textTertiary
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                Spinner {
+                    anchors.centerIn: parent
+                    width: 16; height: 16
+                    visible: root.busy
+                    color: Theme.bg
                 }
             }
 
@@ -677,6 +924,27 @@ Rectangle {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
+            }
+        }
+    }
+
+    // Menu item that slides in after `order` × 40 ms when its menu opens.
+    component StaggerItem: MenuItem {
+        id: si
+        property int order: 0
+        transform: Translate { id: siShift }
+        Connections {
+            target: si.menu
+            function onAboutToShow() { siIn.restart() }
+        }
+        SequentialAnimation {
+            id: siIn
+            PropertyAction { target: si; property: "opacity"; value: Theme.animations ? 0 : 1 }
+            PropertyAction { target: siShift; property: "x"; value: Theme.animations ? -8 : 0 }
+            PauseAnimation { duration: Theme.dur(si.order * 40) }
+            ParallelAnimation {
+                NumberAnimation { target: si; property: "opacity"; to: 1; duration: Theme.dur(250) }
+                NumberAnimation { target: siShift; property: "x"; to: 0; duration: Theme.dur(300); easing.type: Easing.OutQuint }
             }
         }
     }

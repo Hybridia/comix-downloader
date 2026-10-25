@@ -3,6 +3,7 @@ import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
+import "../fx"
 
 Item {
     id: libraryView
@@ -85,12 +86,35 @@ Item {
     property string statusCurrentTitle: ""
     property string statusSummary: ""
 
-    function refresh() {
+    // animate=true when the user opens the view or changes the filter:
+    // cards rise in. Data-only refreshes (a download finished) don't
+    // replay the entrance.
+    property bool animateNext: false
+    function refresh(animate) {
         entries = LibraryBridge.listEntries()
-        applyFilterAndSort()
+        applyFilterAndSort(!!animate)
     }
 
-    function applyFilterAndSort() {
+    function cardCount() { return cardRepeater.count }
+    function cardAt(i) { return cardRepeater.itemAt(i) }
+    function cardFor(url) {
+        for (var i = 0; i < cardRepeater.count; i++) {
+            var c = cardRepeater.itemAt(i)
+            if (c && c.entry && c.entry.source_url === url) return c
+        }
+        return null
+    }
+
+    // A full "Check for Updates" is running (pulse rings on the button).
+    property bool updateChecking: LibraryBridge ? LibraryBridge.isCheckingForUpdates() : false
+    Connections {
+        target: LibraryBridge
+        function onUpdateCheckStarted(total, skipped) { libraryView.updateChecking = true }
+        function onUpdateCheckFinished(a, b, c, d, e) { libraryView.updateChecking = false }
+    }
+
+    function applyFilterAndSort(animate) {
+        animateNext = animate === undefined ? true : animate
         var filter = (filterText || "").trim().toLowerCase()
         var out = []
         for (var i = 0; i < entries.length; i++) {
@@ -185,10 +209,10 @@ Item {
 
     // Re-apply filter/sort whenever the toolbar changes. Cheap; we
     // hold the master list in memory either way.
-    onFilterTextChanged: applyFilterAndSort()
-    onSortModeChanged: applyFilterAndSort()
-    onStatusFilterChanged: applyFilterAndSort()
-    onHideHentaiChanged: applyFilterAndSort()
+    onFilterTextChanged: applyFilterAndSort(true)
+    onSortModeChanged: applyFilterAndSort(true)
+    onStatusFilterChanged: applyFilterAndSort(true)
+    onHideHentaiChanged: applyFilterAndSort(true)
 
     Component.onCompleted: refresh()
 
@@ -284,50 +308,60 @@ Item {
             // ticking is an explicit request); otherwise every ongoing
             // series. Replaces the old "Update All" button, which
             // downloaded everything it found without asking.
-            Button {
-                id: checkUpdatesBtn
-
-                ToolTip.visible: hovered
-                ToolTip.delay: 600
-                ToolTip.text: libraryView.selectedCount > 0
-                    ? "Look for new chapters on the ticked series only.\n" +
-                      "You review and approve them in Updates before anything downloads."
-                    : "Look for new chapters on every ongoing series.\n" +
-                      "Tick series (checkbox on the cover) to check only those.\n" +
-                      "You review and approve them in Updates before anything downloads."
+            Item {
                 Layout.preferredHeight: 34
-                text: libraryView.selectedCount > 0
-                      ? "🔔 Check " + libraryView.selectedCount + " selected"
-                      : "🔔 Check for Updates"
-                enabled: entries.length > 0 && !libraryView.statusBusy
-                onClicked: {
-                    if (!LibraryBridge.isCheckingForUpdates()) {
-                        if (libraryView.selectedCount > 0) {
-                            LibraryBridge.checkForUpdatesFor(Object.keys(libraryView.selectedUrls))
-                            libraryView.clearSelection()
-                        } else {
-                            LibraryBridge.checkForUpdates()
-                        }
-                    }
-                    libraryView.updatesRequested()
+                Layout.preferredWidth: checkUpdatesBtn.implicitWidth
+                PulseRings {
+                    anchors.centerIn: parent
+                    width: parent.height; height: parent.height
+                    running: libraryView.updateChecking
+                    color: accentPrimary
                 }
+                Button {
+                    id: checkUpdatesBtn
 
-                background: Rectangle {
-                    radius: 6
-                    color: parent.enabled
-                           ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : Theme.border
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                }
-                contentItem: Text {
-                    text: parent.text
-                    color: parent.enabled ? Theme.surface : textTertiary
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: 14
-                    rightPadding: 14
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    ToolTip.text: libraryView.selectedCount > 0
+                        ? "Look for new chapters on the ticked series only.\n" +
+                          "You review and approve them in Updates before anything downloads."
+                        : "Look for new chapters on every ongoing series.\n" +
+                          "Tick series (checkbox on the cover) to check only those.\n" +
+                          "You review and approve them in Updates before anything downloads."
+                    anchors.fill: parent
+                    text: libraryView.selectedCount > 0
+                          ? "🔔 Check " + libraryView.selectedCount + " selected"
+                          : "🔔 Check for Updates"
+                    enabled: entries.length > 0 && !libraryView.statusBusy
+                    onClicked: {
+                        if (!LibraryBridge.isCheckingForUpdates()) {
+                            if (libraryView.selectedCount > 0) {
+                                LibraryBridge.checkForUpdatesFor(Object.keys(libraryView.selectedUrls))
+                                libraryView.clearSelection()
+                            } else {
+                                LibraryBridge.checkForUpdates()
+                            }
+                        }
+                        libraryView.updatesRequested()
+                    }
+
+                    background: Rectangle {
+                        radius: 6
+                        color: parent.enabled
+                               ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
+                               : Theme.border
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled ? Theme.surface : textTertiary
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 14
+                        rightPadding: 14
+                    }
                 }
             }
 
@@ -362,10 +396,14 @@ Item {
             spacing: 10
             visible: entries.length > 0 || libraryView.filterText.length > 0
 
-            // Search field
+            // Search field — shrinks first when the window is narrow, so
+            // this row never forces the whole view wider than the window.
             Rectangle {
                 Layout.preferredHeight: 36
                 Layout.preferredWidth: 320
+                Layout.minimumWidth: 160
+                Layout.fillWidth: true
+                Layout.maximumWidth: 320
                 color: bgCard
                 radius: 8
                 border.color: searchField.activeFocus ? accentPrimary : borderColor
@@ -458,6 +496,7 @@ Item {
                 id: sortCombo
                 Layout.preferredHeight: 36
                 Layout.preferredWidth: 200
+                Layout.minimumWidth: 150
                 model: [
                     { label: "Last downloaded", key: "last_downloaded" },
                     { label: "Recently added",  key: "recently_added"  },
@@ -853,6 +892,10 @@ Item {
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // Without these the ScrollView takes its content's implicit
+            // width and the cards' right-hand buttons spill off-screen.
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
             visible: entryModel.count > 0
             clip: true
             contentWidth: availableWidth
@@ -862,9 +905,13 @@ Item {
                 spacing: 10
 
                 Repeater {
+                    id: cardRepeater
                     model: ListModel { id: entryModel }
 
                     LibraryCard {
+                        // Only the first screenful animates; the rest
+                        // are off-screen anyway.
+                        entranceIndex: libraryView.animateNext && index < 16 ? index : -1
                         entry: libraryView.entryFor(model.source_url)
                         statusMessage: libraryView.statusByUrl[model.source_url] || ""
                         busy: libraryView.busyUrl === model.source_url

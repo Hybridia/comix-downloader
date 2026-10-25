@@ -53,7 +53,7 @@ ApplicationWindow {
             
                 onBrowseClicked: viewStack.currentIndex = 0
                 onDownloadsClicked: viewStack.currentIndex = 1
-                onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh() }
+                onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh(true) }
                 onUpdatesClicked: { viewStack.currentIndex = 3; updatesView.refresh() }
                 onSettingsClicked: settingsDrawer.isOpen = true
             }
