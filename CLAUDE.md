@@ -638,7 +638,7 @@ the what).
   off); Settings worker spinboxes had a binding loop; the Updates empty
   state wasn't centred.
 - `gui/app.py:build_engine` now owns engine setup (main.py + tests).
-- **New test suite** in `tests/` (stdlib unittest, ~60 tests).
+- **New test suite** in `tests/` (stdlib unittest, 52 tests).
 
 ### 2026-10-24 — Library card "Downloading…" line now clears
 - The card status set on dispatch ("Downloading N new chapters…") was
