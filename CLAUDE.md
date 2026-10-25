@@ -54,7 +54,8 @@ comix/
 ├── library.json                  Persistent download library (gitignored)
 ├── gui/
 │   ├── main.py                   GUI entry point (wires setup_logging from config)
-│   ├── app.py                    build_engine(): bridges + context props + main.qml (shared by main.py and tests)
+│   ├── app.py                    build_engine(): bridges + context props + main.qml (shared by main.py and tests); apply_app_icon()
+│   ├── resources/                icon-source.png (chibi art) → icon.png + AppIcon.icns via scripts/make_app_icon.py
 │   ├── bridge/                   Python ↔ QML bridges
 │   │   ├── manga_bridge.py       Fetches manga info via the provider router
 │   │   ├── download_bridge.py    Drives concurrent chapter downloads + per-run failure log + library recording
@@ -638,7 +639,13 @@ the what).
   off); Settings worker spinboxes had a binding loop; the Updates empty
   state wasn't centred.
 - `gui/app.py:build_engine` now owns engine setup (main.py + tests).
-- **New test suite** in `tests/` (stdlib unittest, 52 tests).
+- **App icon:** chibi girl reading manga. The source art had a ragged,
+  colour-fringed edge from background removal, so
+  `scripts/make_app_icon.py` cuts inside it, masks to a macOS squircle
+  on Apple's 1024 grid (824 px body + soft shadow) and writes
+  `gui/resources/icon.png` + `AppIcon.icns`. `apply_app_icon()` sets it
+  as the window / Dock icon at startup.
+- **New test suite** in `tests/` (stdlib unittest, 64 tests).
 
 ### 2026-10-24 — Library card "Downloading…" line now clears
 - The card status set on dispatch ("Downloading N new chapters…") was

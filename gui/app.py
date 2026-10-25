@@ -20,6 +20,18 @@ from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
 from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge, LibraryBridge
 
 QML_DIR = Path(__file__).parent / "qml"
+# Built by scripts/make_app_icon.py from gui/resources/icon-source.png
+ICON_PNG = Path(__file__).parent / "resources" / "icon.png"
+ICON_ICNS = Path(__file__).parent / "resources" / "AppIcon.icns"
+
+
+def apply_app_icon(app) -> None:
+    """Window icon on every platform; on macOS Qt also uses it for the Dock."""
+    from PyQt6.QtGui import QIcon
+    icon = QIcon(str(ICON_ICNS if ICON_ICNS.exists() else ICON_PNG))
+    if ICON_PNG.exists():
+        icon.addFile(str(ICON_PNG))
+    app.setWindowIcon(icon)
 
 
 def software_rendering() -> bool:

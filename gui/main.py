@@ -15,7 +15,7 @@ sys.path.insert(0, str(project_root))
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFontDatabase
 
-from gui.app import build_engine
+from gui.app import build_engine, apply_app_icon
 from src.utils.logger import setup_logging
 from src.utils.config import ConfigManager
 
@@ -65,6 +65,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Comix Downloader")
     app.setOrganizationName("ComixDownloader")
+    apply_app_icon(app)
     
     # Load fonts
     load_fonts()
