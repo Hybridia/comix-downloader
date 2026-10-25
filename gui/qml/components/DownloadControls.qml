@@ -52,6 +52,17 @@ Rectangle {
                 id: preferenceCombo
                 model: root.scanlators
                 implicitWidth: 150; implicitHeight: 36
+                palette.button: Theme.elevated
+                palette.buttonText: Theme.textPrimary
+                palette.window: Theme.elevated
+                palette.windowText: Theme.textPrimary
+                palette.base: Theme.elevated
+                palette.text: Theme.textPrimary
+                palette.highlight: Theme.accent
+                palette.highlightedText: Theme.bg
+                palette.mid: Theme.border
+                palette.dark: Theme.border
+                palette.light: Theme.elevated
                 onCurrentTextChanged: root.scanlatorPreference = currentText
                 background: Rectangle { color: bgElevated; radius: 6; border.color: Theme.border; border.width: 1 }
                 contentItem: Text { 
@@ -73,6 +84,17 @@ Rectangle {
                 id: filterCombo
                 model: root.scanlators
                 implicitWidth: 150; implicitHeight: 36
+                palette.button: Theme.elevated
+                palette.buttonText: Theme.textPrimary
+                palette.window: Theme.elevated
+                palette.windowText: Theme.textPrimary
+                palette.base: Theme.elevated
+                palette.text: Theme.textPrimary
+                palette.highlight: Theme.accent
+                palette.highlightedText: Theme.bg
+                palette.mid: Theme.border
+                palette.dark: Theme.border
+                palette.light: Theme.elevated
                 onCurrentTextChanged: {
                     root.scanlatorFilter = currentText
                     root.filterChanged(currentText)

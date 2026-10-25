@@ -236,20 +236,20 @@ Item {
                     id: applyRow
                     anchors.centerIn: parent
                     spacing: 0
-                    Text { text: "⬇ Download "; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.bg }
+                    Text { text: "⬇ Download "; font.pixelSize: 12; font.weight: Font.DemiBold; color: applyBtn.enabled ? Theme.bg : Theme.textTertiary }
                     CountUpText {
                         objectName: "applyCountText"
                         visible: applyBtn.t.chapters > 0
                         value: updatesView.applyCount
                         duration: 400
                         font.pixelSize: 12; font.weight: Font.Black
-                        color: Theme.bg
+                        color: applyBtn.enabled ? Theme.bg : Theme.textTertiary
                     }
                     Text {
                         text: applyBtn.t.chapters > 0
                               ? " chapter" + (applyBtn.t.chapters === 1 ? "" : "s") + " (" + applyBtn.t.series + " series)"
                               : "selected"
-                        font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.bg
+                        font.pixelSize: 12; font.weight: Font.DemiBold; color: applyBtn.enabled ? Theme.bg : Theme.textTertiary
                     }
                 }
             }
@@ -345,7 +345,8 @@ Item {
             Layout.fillHeight: true
             visible: updatesView.items.length === 0
             spacing: 8
-            Item { Layout.fillHeight: true }
+            // fillWidth spacer: lets this column stretch so the text centres
+            Item { Layout.fillHeight: true; Layout.fillWidth: true }
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: "🔔"

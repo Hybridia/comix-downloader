@@ -18,7 +18,7 @@ Item {
 
     implicitWidth: label.implicitWidth + 36
     implicitHeight: 38
-    opacity: enabled ? 1 : 0.4
+    opacity: enabled ? 1 : 0.8
     Behavior on opacity { NumberAnimation { duration: Theme.dur(250) } }
 
     scale: !enabled ? 1 : pressed ? 0.94 : hovered ? 1.03 : 1
@@ -33,10 +33,10 @@ Item {
         id: bg
         anchors.fill: parent
         radius: root.radius
-        color: root.primary ? Theme.accent : Theme.card
-        border.width: root.primary ? 0 : 1
-        border.color: root.hovered ? Theme.accent : Theme.border
-        gradient: root.primary ? grad : null
+        color: !root.enabled ? Theme.elevated : root.primary ? Theme.accent : Theme.card
+        border.width: root.primary && root.enabled ? 0 : 1
+        border.color: root.hovered && root.enabled ? Theme.accent : Theme.border
+        gradient: root.primary && root.enabled ? grad : null
         Behavior on border.color { ColorAnimation { duration: Theme.dur(200) } }
 
         layer.enabled: root.primary && root.hovered && root.enabled && !Theme.software && Theme.animations
@@ -63,7 +63,7 @@ Item {
         font.pixelSize: root.fontSize
         font.weight: root.fontWeight
         font.letterSpacing: root.letterSpacing
-        color: root.primary ? Theme.bg : Theme.textPrimary
+        color: !root.enabled ? Theme.textTertiary : root.primary ? Theme.bg : Theme.textPrimary
     }
 
     MouseArea {

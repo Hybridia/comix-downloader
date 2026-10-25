@@ -54,12 +54,18 @@ comix/
 ├── library.json                  Persistent download library (gitignored)
 ├── gui/
 │   ├── main.py                   GUI entry point (wires setup_logging from config)
+│   ├── app.py                    build_engine(): bridges + context props + main.qml (shared by main.py and tests)
 │   ├── bridge/                   Python ↔ QML bridges
 │   │   ├── manga_bridge.py       Fetches manga info via the provider router
 │   │   ├── download_bridge.py    Drives concurrent chapter downloads + per-run failure log + library recording
 │   │   ├── library_bridge.py     Library tab: list / update / remove / open folder + Check for Updates (review queue)
 │   │   └── settings_bridge.py    Exposes ConfigManager + toomics auth to QML
 │   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, UpdatesView, …)
+│       ├── Style/                QML module: Theme (live palette + motion) and Fx (effect bus) singletons, palettes.js
+│       ├── fx/                   Reusable effects: FxButton, Ripple, ToastHost, ParticleBurst, Skeleton, CountUpText,
+│       │                         PulseRings, AmbientGlow, ViewPane, ThemeWipe, FormatSelector, Spinner
+│       └── logic/                Pure JS (.pragma library): chapters.js, badge.js, motion.js — unit-tested via QJSEngine
+├── tests/                        unittest suite: QJSEngine logic tests + headless GUI smoke tests (temp config/library)
 ├── scripts/                      Local diagnostic + iCloud-sync scripts (run from user's machine)
 │   ├── toomics_test.py           End-to-end probe for the toomics provider
 │   ├── mangafire_test.py         End-to-end probe for the mangafire provider
@@ -499,6 +505,20 @@ Defaults live in `ConfigManager.DEFAULT_CONFIG`. Notable keys:
   startup. Without this, `logger.info`/`warning`/`debug` calls in
   providers are silently swallowed even when the user toggles "Enable
   Debug Logs" in Settings. CLI does this in `src/cli/app.py`.
+- **GUI colours and motion go through `Style`.** Every QML file does
+  `import Style` and binds colours to `Theme.*` (never hard-code a
+  palette hex — `tests/test_theme.py` scans for that). Every animation
+  duration goes through `Theme.dur(ms)` so Settings → Animations can
+  make the app instant; decorative loops sit in
+  `Loader { active: Theme.animations }`. Blur / masks / shadows
+  (MultiEffect) are skipped when `Theme.software` (`--cpu`). App-wide
+  effects are requested through the `Fx` singleton
+  (`Fx.toast(text, kind)`, `Fx.flyRequested`, `Fx.themeWipeRequested`).
+- **GUI tests:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -t .`
+  Tests build the real engine against temp `config.json` /
+  `library.json` / `pending_updates.json` and fail on any QML warning.
+  MultiEffect does not render in offscreen grabs — check blur visually
+  on the real platform.
 - **`print(..., flush=True)` for unconditional diagnostics.** Provider
   code that needs to be visible in the user's terminal regardless of
   the logging toggle uses raw `print` — see the `[mangafire]` /
@@ -587,6 +607,38 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-10-25 — GUI themes + motion (Ink & Sakura / Neon Tokyo / Ember)
+- **Three live themes**, picked in Settings → Appearance with a
+  circular colour wipe from the click point (`fx/ThemeWipe.qml`:
+  snapshot of `windowRoot` + inverted circular MultiEffect mask;
+  crossfade under `--cpu`). Default **Ink & Sakura**. Config keys
+  `theme`, `animations_enabled`, `ambient_glow`. Design + plan:
+  `docs/superpowers/specs|plans/2026-10-25-qml-motion-themes*.md`;
+  interactive mockups were in `.superpowers/brainstorm/` (gitignored).
+- **Why QML, not an HTML front-end:** the user wanted nicer visuals,
+  not a second app; QML does the same effects natively and a second
+  front-end would double every future feature.
+- **Motion everywhere:** springy buttons with ripples, sliding sidebar
+  indicator, view transitions (slide/fade/un-blur), toasts, drifting
+  background glow, skeleton loaders, count-up numbers, confetti on
+  finished downloads, fly-to-Downloads bubble + Downloads badge
+  (chapters still queued, counts down), animated URL validation
+  (match glow, shake on unknown URL, drag-a-link drop zone), manga
+  card reveal (blur-up cover, rising title letters, popping tags),
+  chapter list with text filter, shift-click ranges and cascading
+  Select All, Library cards that rise in / tilt / flip (ⓘ) with a
+  check → spinner → "✦ N new" morph, Updates chips that pop and a
+  rolling Download count, flowing download progress bars, Settings
+  drawer that springs in over a blurred app with hold-to-reset.
+- **Animations off** (Settings) makes every duration 0 and removes
+  decorative loops; everything still works.
+- **Fixed on the way:** Library cards were wider than the window (the
+  toolbar's minimum width forced the whole column wide — buttons cut
+  off); Settings worker spinboxes had a binding loop; the Updates empty
+  state wasn't centred.
+- `gui/app.py:build_engine` now owns engine setup (main.py + tests).
+- **New test suite** in `tests/` (stdlib unittest, ~60 tests).
 
 ### 2026-10-24 — Library card "Downloading…" line now clears
 - The card status set on dispatch ("Downloading N new chapters…") was

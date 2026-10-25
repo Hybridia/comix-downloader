@@ -507,6 +507,31 @@ Item {
                 textRole: "label"
                 valueRole: "key"
                 currentIndex: 0
+                palette.button: Theme.elevated
+                palette.buttonText: Theme.textPrimary
+                palette.window: Theme.elevated
+                palette.windowText: Theme.textPrimary
+                palette.base: Theme.elevated
+                palette.text: Theme.textPrimary
+                palette.highlight: Theme.accent
+                palette.highlightedText: Theme.bg
+                palette.mid: Theme.border
+                palette.dark: Theme.border
+                palette.light: Theme.elevated
+                background: Rectangle {
+                    radius: 8
+                    color: Theme.card
+                    border.color: sortCombo.hovered || sortCombo.popup.visible ? Theme.accent : Theme.border
+                    Behavior on border.color { ColorAnimation { duration: Theme.dur(200) } }
+                }
+                contentItem: Text {
+                    text: sortCombo.displayText
+                    leftPadding: 12
+                    font.pixelSize: 13
+                    color: Theme.textPrimary
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
                 onActivated: libraryView.sortMode = model[currentIndex].key
             }
 

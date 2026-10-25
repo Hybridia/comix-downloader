@@ -3,6 +3,7 @@ import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
+import "../fx"
 
 Item {
     id: downloadsView
@@ -43,8 +44,10 @@ Item {
             // CLEAR HISTORY BUTTON. Enabled as soon as ANY job is
             // finished so a completed download can be dismissed
             // without waiting for parallel ones to finish first.
-            Button {
+            FxButton {
                 text: "Clear Finished"
+                primary: false
+                fontSize: 12
                 onClicked: progressPanel.reset()
                 enabled: progressPanel.hasFinishedJob
             }
