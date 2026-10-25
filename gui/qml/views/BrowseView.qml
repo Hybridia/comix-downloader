@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
+import Style
 
 Item {
     id: browseView
@@ -52,10 +53,12 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
             scanlators: chapterListComp.getScanlators()
+            selectedCount: chapterListComp.selectedCount
             onFilterChanged: (filter) => chapterListComp.applyFilter(filter)
-            onDownloadClicked: {
+            onDownloadClicked: (from) => {
                 var selected = chapterListComp.getSelectedChapters()
                 DownloadBridge.startDownload(mangaCardComp.manga, selected, SettingsBridge.outputFormat, scanlatorPreference)
+                Fx.flyRequested(from, selected.length)
             }
         }
     }
