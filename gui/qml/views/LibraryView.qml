@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
@@ -9,13 +10,13 @@ Item {
     // Ask main.qml to show the Updates view (after starting a check).
     signal updatesRequested()
 
-    readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color textTertiary: "#5C5C66"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color borderColor: "#2A2A33"
+    readonly property color bgCard: Theme.card
+    readonly property color bgElevated: Theme.elevated
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textTertiary: Theme.textTertiary
+    readonly property color accentPrimary: Theme.accent
+    readonly property color borderColor: Theme.border
 
     // Master list from the bridge.
     property var entries: []
@@ -315,12 +316,12 @@ Item {
                     radius: 6
                     color: parent.enabled
                            ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : "#3A3A45"
+                           : Theme.border
                     Behavior on color { ColorAnimation { duration: 120 } }
                 }
                 contentItem: Text {
                     text: parent.text
-                    color: parent.enabled ? "#1A1A1F" : textTertiary
+                    color: parent.enabled ? Theme.surface : textTertiary
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
@@ -397,9 +398,9 @@ Item {
                         palette.text: textPrimary
                         palette.placeholderText: textTertiary
                         palette.highlight: accentPrimary
-                        palette.highlightedText: "#1A1A1F"
+                        palette.highlightedText: Theme.surface
                         selectionColor: accentPrimary
-                        selectedTextColor: "#1A1A1F"
+                        selectedTextColor: Theme.surface
                         background: Item {}
                     }
 
@@ -482,7 +483,7 @@ Item {
                     property string label: ""
                     property string filterKey: ""        // "" | "hide_completed" | "only_completed"
                     property string tipText: ""
-                    property color activeColor: "#7CB342"
+                    property color activeColor: Theme.success
                     readonly property bool active:
                         libraryView.statusFilter === chip.filterKey
 
@@ -556,7 +557,7 @@ Item {
             // Hide hentai" to see the ongoing manhwa you follow).
             Rectangle {
                 id: hentaiChip
-                readonly property color activeColor: "#5DADE2"
+                readonly property color activeColor: Theme.info
 
                 Layout.preferredHeight: 36
                 implicitWidth: hentaiRow.implicitWidth + 24

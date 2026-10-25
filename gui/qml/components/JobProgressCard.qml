@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -22,17 +23,17 @@ Rectangle {
     property string currentChapter: ""
 
     // Theme — kept inline so the component is drop-in self-contained.
-    readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color accentHighlight: "#FFD93D"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color success: "#7CB342"
+    readonly property color bgCard: Theme.card
+    readonly property color bgElevated: Theme.elevated
+    readonly property color accentPrimary: Theme.accent
+    readonly property color accentHighlight: Theme.highlight
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color success: Theme.success
 
     color: bgCard
     radius: 10
-    border.color: isFinished ? success : "#2A2A35"
+    border.color: isFinished ? success : Theme.border
     border.width: 1
     implicitHeight: cardLayout.implicitHeight + 24
 
@@ -166,7 +167,7 @@ Rectangle {
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
                 color: card.isFinished ? success
-                    : card.isCancelled ? "#E57373"
+                    : card.isCancelled ? Theme.error
                     : card.isPaused ? textSecondary
                     : accentPrimary
             }
@@ -213,7 +214,7 @@ Rectangle {
                         anchors.centerIn: parent
                         text: "✕"
                         font.pixelSize: 12
-                        color: cancelHover.containsMouse ? "#E57373" : textSecondary
+                        color: cancelHover.containsMouse ? Theme.error : textSecondary
                     }
                     MouseArea {
                         id: cancelHover
@@ -292,7 +293,7 @@ Rectangle {
                             width: model.status === "Preparing"
                                 ? Math.max(8, parent.width * 0.04)
                                 : parent.width * (model.progress / 100)
-                            color: model.status === "Failed" ? "#E57373"
+                            color: model.status === "Failed" ? Theme.error
                                 : model.status === "Complete" ? success
                                 : model.status === "Preparing" ? textSecondary
                                 : accentPrimary

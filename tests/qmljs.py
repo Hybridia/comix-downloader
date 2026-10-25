@@ -1,19 +1,16 @@
 """Load a `.pragma library` QML JavaScript file into a QJSEngine for tests."""
 from pathlib import Path
 
-from PyQt6.QtCore import QCoreApplication
 from PyQt6.QtQml import QJSEngine
 
+from tests.qtapp import app
+
 ROOT = Path(__file__).resolve().parent.parent
-_app = None  # keeps the QCoreApplication alive
 
 
 class JsLib:
     def __init__(self, path: Path):
-        # QJSEngine needs an application object; reuse one if a test made it.
-        global _app
-        if QCoreApplication.instance() is None:
-            _app = QCoreApplication([])
+        app()  # QJSEngine needs an application object
         self._engine = QJSEngine()
         src = path.read_text(encoding="utf-8")
         src = "\n".join(l for l in src.splitlines() if not l.strip().startswith(".pragma"))

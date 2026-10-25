@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
@@ -7,10 +8,10 @@ Item {
     id: downloadsView
     
     // Theme colors (referencing root if possible, or re-defining for safety)
-    readonly property color bgCard: "#1C1C24"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color accentPrimary: "#E8A54B"
+    readonly property color bgCard: Theme.card
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color accentPrimary: Theme.accent
 
     ColumnLayout {
         anchors.fill: parent

@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -56,28 +57,28 @@ Rectangle {
     }
     function _statusColor(key) {
         switch (key) {
-            case "completed": return "#7CB342"   // green
+            case "completed": return Theme.success   // green
             case "cancelled": return "#9E9E9E"   // grey
-            case "hiatus":    return "#E8A54B"   // amber
+            case "hiatus":    return Theme.accent   // amber
             case "ongoing":   return "#5DADE2"   // blue
             // Unknown: use the accent so the pill reads as a clear
             // call-to-action, not a "no data" indicator.
-            default:          return "#E8A54B"
+            default:          return Theme.accent
         }
     }
 
-    readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color textTertiary: "#5C5C66"
-    readonly property color success: "#7CB342"
-    readonly property color danger: "#E57373"
+    readonly property color bgCard: Theme.card
+    readonly property color bgElevated: Theme.elevated
+    readonly property color accentPrimary: Theme.accent
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textTertiary: Theme.textTertiary
+    readonly property color success: Theme.success
+    readonly property color danger: Theme.error
 
     color: bgCard
     radius: 10
-    border.color: selected ? Qt.darker(accentPrimary, 1.4) : "#2A2A33"
+    border.color: selected ? Qt.darker(accentPrimary, 1.4) : Theme.border
     border.width: 1
 
     Layout.fillWidth: true
@@ -148,14 +149,14 @@ Rectangle {
                 anchors.margins: 5
                 width: 22; height: 22; radius: 5
                 color: root.selected ? accentPrimary
-                       : (selectMa.containsMouse ? "#CC1C1C24" : "#991C1C24")
+                       : (selectMa.containsMouse ? Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.8) : Qt.rgba(Theme.card.r, Theme.card.g, Theme.card.b, 0.6))
                 border.width: 1
-                border.color: root.selected ? accentPrimary : "#8B8B99"
+                border.color: root.selected ? accentPrimary : Theme.textSecondary
                 Text {
                     anchors.centerIn: parent
                     visible: root.selected
                     text: "✓"
-                    color: "#1A1A1F"
+                    color: Theme.surface
                     font.pixelSize: 14
                     font.weight: Font.Bold
                 }
@@ -374,7 +375,7 @@ Rectangle {
                     }
                     contentItem: Text {
                         text: parent.text
-                        color: "#1A1A1F"
+                        color: Theme.surface
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
@@ -485,7 +486,7 @@ Rectangle {
                     implicitWidth: overflowText.implicitWidth + 14
                     radius: 11
                     color: overflowMa.containsMouse ? bgElevated : "transparent"
-                    border.color: "#3A3A45"
+                    border.color: Theme.border
                     border.width: 1
 
                     Text {
@@ -554,12 +555,12 @@ Rectangle {
                     radius: 6
                     color: parent.enabled
                            ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : "#3A3A45"
+                           : Theme.border
                     Behavior on color { ColorAnimation { duration: 120 } }
                 }
                 contentItem: Text {
                     text: parent.text
-                    color: parent.enabled ? "#1A1A1F" : textTertiary
+                    color: parent.enabled ? Theme.surface : textTertiary
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
@@ -583,7 +584,7 @@ Rectangle {
                     radius: 6
                     color: parent.hovered ? Qt.darker(success, 1.2) : "transparent"
                     border.width: 1
-                    border.color: parent.hovered ? success : "#3A3A45"
+                    border.color: parent.hovered ? success : Theme.border
                 }
                 contentItem: Text {
                     text: parent.text
@@ -617,7 +618,7 @@ Rectangle {
                         radius: 6
                         color: parent.hovered ? bgElevated : "transparent"
                         border.width: 1
-                        border.color: "#3A3A45"
+                        border.color: Theme.border
                     }
                     contentItem: Text {
                         text: parent.text
@@ -645,7 +646,7 @@ Rectangle {
                         radius: 6
                         color: parent.hovered ? bgElevated : "transparent"
                         border.width: 1
-                        border.color: "#3A3A45"
+                        border.color: Theme.border
                     }
                     contentItem: Text {
                         text: parent.text
@@ -667,7 +668,7 @@ Rectangle {
                     radius: 6
                     color: parent.hovered ? Qt.darker(danger, 1.4) : "transparent"
                     border.width: 1
-                    border.color: parent.hovered ? danger : "#3A3A45"
+                    border.color: parent.hovered ? danger : Theme.border
                 }
                 contentItem: Text {
                     text: parent.text

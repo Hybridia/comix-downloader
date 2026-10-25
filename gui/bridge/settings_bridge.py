@@ -77,6 +77,42 @@ class SettingsBridge(QObject):
         self._config_manager.set("max_image_workers", max(1, min(20, value)))
         self.settingsChanged.emit()
     
+    # Theme (ink | neon | ember). Unknown values read back as "ink" and
+    # are ignored on write.
+    THEMES = ("ink", "neon", "ember")
+
+    @pyqtProperty(str, notify=settingsChanged)
+    def theme(self):
+        value = self._config_manager.get("theme", "ink")
+        return value if value in self.THEMES else "ink"
+
+    @theme.setter
+    def theme(self, value: str):
+        if value not in self.THEMES or value == self.theme:
+            return
+        self._config_manager.set("theme", value)
+        self.settingsChanged.emit()
+
+    # GUI motion master switch
+    @pyqtProperty(bool, notify=settingsChanged)
+    def animationsEnabled(self):
+        return bool(self._config_manager.get("animations_enabled", True))
+
+    @animationsEnabled.setter
+    def animationsEnabled(self, value: bool):
+        self._config_manager.set("animations_enabled", bool(value))
+        self.settingsChanged.emit()
+
+    # Drifting background glow
+    @pyqtProperty(bool, notify=settingsChanged)
+    def ambientGlow(self):
+        return bool(self._config_manager.get("ambient_glow", True))
+
+    @ambientGlow.setter
+    def ambientGlow(self, value: bool):
+        self._config_manager.set("ambient_glow", bool(value))
+        self.settingsChanged.emit()
+
     # Slots for QML
     @pyqtSlot(str, 'QVariant')
     def setValue(self, key: str, value):

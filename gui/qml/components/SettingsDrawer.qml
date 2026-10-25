@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -32,16 +33,16 @@ Rectangle {
     }
     
     // Theme colors
-    readonly property color bgDeep: "#0A0A0C"
-    readonly property color bgSurface: "#141419"
-    readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color textTertiary: "#5C5C66"
-    readonly property color error: "#E57373"
-    readonly property color success: "#7CB342"
+    readonly property color bgDeep: Theme.bg
+    readonly property color bgSurface: Theme.surface
+    readonly property color bgCard: Theme.card
+    readonly property color bgElevated: Theme.elevated
+    readonly property color accentPrimary: Theme.accent
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textTertiary: Theme.textTertiary
+    readonly property color error: Theme.error
+    readonly property color success: Theme.success
     
     visible: isOpen
     color: Qt.rgba(0, 0, 0, 0.7)
@@ -186,7 +187,7 @@ Rectangle {
                     NumberInput {
                         value: SettingsBridge ? SettingsBridge.maxChapterWorkers : 3
                         minValue: 1; maxValue: 10
-                        onValueChanged: if (SettingsBridge) SettingsBridge.setValue("max_chapter_workers", value)
+                        onValueChanged: if (SettingsBridge && value !== SettingsBridge.maxChapterWorkers) SettingsBridge.setValue("max_chapter_workers", value)
                     }
                 }
                 
@@ -196,7 +197,7 @@ Rectangle {
                     NumberInput {
                         value: SettingsBridge ? SettingsBridge.maxImageWorkers : 5
                         minValue: 1; maxValue: 20
-                        onValueChanged: if (SettingsBridge) SettingsBridge.setValue("max_image_workers", value)
+                        onValueChanged: if (SettingsBridge && value !== SettingsBridge.maxImageWorkers) SettingsBridge.setValue("max_image_workers", value)
                     }
                 }
 

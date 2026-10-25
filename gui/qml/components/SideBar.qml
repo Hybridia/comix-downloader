@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Layouts
 import QtQuick.Controls
 
@@ -16,11 +17,11 @@ Rectangle {
     property int updatesCount: 0
     
     // Theme colors (mirroring Theme.qml for consistency)
-    readonly property color bgDeep: "#0A0A0C"
-    readonly property color bgSurface: "#141419"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
+    readonly property color bgDeep: Theme.bg
+    readonly property color bgSurface: Theme.surface
+    readonly property color accentPrimary: Theme.accent
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
     
     width: 240
     color: bgDeep
@@ -110,7 +111,7 @@ Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: 48
         radius: 8
-        color: isActive ? "#1C1C24" : (mouseArea.containsMouse ? "#141419" : "transparent")
+        color: isActive ? Theme.card : (mouseArea.containsMouse ? Theme.surface : "transparent")
         
         Behavior on color { ColorAnimation { duration: 150 } }
         
@@ -148,7 +149,7 @@ Rectangle {
                     text: btn.badge
                     font.pixelSize: 11
                     font.weight: Font.Bold
-                    color: "#1A1A1F"
+                    color: Theme.surface
                 }
             }
         }

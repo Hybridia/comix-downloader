@@ -42,6 +42,10 @@ class ConfigManager:
         "min_requests_per_second": 0.5,       # floor when throttled
         "max_requests_per_second": 8.0,       # ceiling when recovering
         "verify_ssl": True,                   # set false only if local CA store is broken
+        # GUI look & motion
+        "theme": "ink",                       # ink | neon | ember
+        "animations_enabled": True,           # master switch for GUI motion
+        "ambient_glow": True,                 # drifting background glow blobs
     }
     
     def __init__(self, config_path: str | Path | None = None):

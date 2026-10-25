@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -9,12 +10,12 @@ Rectangle {
     signal toggled()
     
     // Theme colors
-    readonly property color bgElevated: "#252530"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color textTertiary: "#5C5C66"
-    readonly property color bgDeep: "#0A0A0C"
+    readonly property color bgElevated: Theme.elevated
+    readonly property color accentPrimary: Theme.accent
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textTertiary: Theme.textTertiary
+    readonly property color bgDeep: Theme.bg
     
     height: 44
     color: mouseArea.containsMouse ? bgElevated : "transparent"

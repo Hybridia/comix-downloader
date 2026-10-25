@@ -13,11 +13,9 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtQml import QQmlApplicationEngine
-from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QFontDatabase
 
-from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge, LibraryBridge
+from gui.app import build_engine
 from src.utils.logger import setup_logging
 from src.utils.config import ConfigManager
 
@@ -75,32 +73,8 @@ def main():
     # This also avoids needing the PyQt6.QtQuickControls2 module which might be missing
     os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
     
-    # Create QML engine
-    engine = QQmlApplicationEngine()
-    
-    # Create bridge instances
-    manga_bridge = MangaBridge()
-    download_bridge = DownloadBridge()
-    settings_bridge = SettingsBridge()
-    library_bridge = LibraryBridge()
-    # The Library "Update" flow needs to invoke DownloadBridge once it
-    # has diffed local vs remote chapters; wire that connection up here
-    # so QML doesn't need to know about it.
-    library_bridge.attach_download_bridge(download_bridge)
-
-    # Expose bridges to QML
-    engine.rootContext().setContextProperty("MangaBridge", manga_bridge)
-    engine.rootContext().setContextProperty("DownloadBridge", download_bridge)
-    engine.rootContext().setContextProperty("SettingsBridge", settings_bridge)
-    engine.rootContext().setContextProperty("LibraryBridge", library_bridge)
-    
-    # Add QML import path
-    qml_dir = Path(__file__).parent / "qml"
-    engine.addImportPath(str(qml_dir))
-    
-    # Load main QML file
-    qml_file = qml_dir / "main.qml"
-    engine.load(QUrl.fromLocalFile(str(qml_file)))
+    # Bridges, context properties and main.qml (shared with the tests)
+    engine, _bridges = build_engine()
     
     # Check if QML loaded successfully
     if not engine.rootObjects():

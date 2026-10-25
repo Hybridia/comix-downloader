@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -15,14 +16,14 @@ import QtQuick.Layouts
 Item {
     id: updatesView
 
-    readonly property color bgCard: "#1C1C24"
-    readonly property color bgElevated: "#252530"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color textTertiary: "#5C5C66"
-    readonly property color accentPrimary: "#E8A54B"
-    readonly property color borderColor: "#2A2A33"
-    readonly property color okColor: "#9CCB7F"
+    readonly property color bgCard: Theme.card
+    readonly property color bgElevated: Theme.elevated
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textTertiary: Theme.textTertiary
+    readonly property color accentPrimary: Theme.accent
+    readonly property color borderColor: Theme.border
+    readonly property color okColor: Qt.lighter(Theme.success, 1.25)
 
     property var items: []
     property var sel: ({})
@@ -232,11 +233,11 @@ Item {
                     radius: 6
                     color: parent.enabled
                            ? (parent.hovered ? Qt.lighter(accentPrimary, 1.1) : accentPrimary)
-                           : "#3A3A45"
+                           : Theme.border
                 }
                 contentItem: Text {
                     text: parent.text
-                    color: parent.enabled ? "#1A1A1F" : textTertiary
+                    color: parent.enabled ? Theme.surface : textTertiary
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
@@ -417,7 +418,7 @@ Item {
                                     anchors.centerIn: parent
                                     visible: card.s.include
                                     text: "✓"
-                                    color: "#1A1A1F"
+                                    color: Theme.surface
                                     font.pixelSize: 13
                                     font.weight: Font.Bold
                                 }
@@ -491,7 +492,7 @@ Item {
                                         palette.base: bgElevated
                                         palette.text: textPrimary
                                         palette.highlight: accentPrimary
-                                        palette.highlightedText: "#1A1A1F"
+                                        palette.highlightedText: Theme.surface
                                         palette.mid: borderColor
                                         palette.dark: borderColor
                                         palette.light: bgElevated

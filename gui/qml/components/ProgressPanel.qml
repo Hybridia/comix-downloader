@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -20,10 +21,10 @@ Rectangle {
     property bool isFinished: false
     property bool hasFinishedJob: false
 
-    readonly property color bgCard: "#1C1C24"
-    readonly property color textPrimary: "#F5F5F0"
-    readonly property color textSecondary: "#8B8B99"
-    readonly property color success: "#7CB342"
+    readonly property color bgCard: Theme.card
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color success: Theme.success
 
     color: bgCard
     radius: 12

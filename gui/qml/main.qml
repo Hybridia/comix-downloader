@@ -1,4 +1,5 @@
 import QtQuick
+import Style
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
@@ -8,8 +9,8 @@ import "views"
 ApplicationWindow {
     id: root
     
-    readonly property color bgDeep: "#0A0A0C"
-    readonly property color bgSurface: "#141419"
+    readonly property color bgDeep: Theme.bg
+    readonly property color bgSurface: Theme.surface
     
     width: 1320
     height: 820
