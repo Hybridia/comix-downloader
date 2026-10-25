@@ -32,7 +32,7 @@ all supported sources.
 | `hentairead.com`        | none                | preview-thumb host swap           | Single-chapter; one HTTP call only |
 | `hentaifox.com`         | none                | hidden form fields + `g_th` JSON  | Single-chapter; reader gives ext   |
 | `toonily.com`           | Cloudflare only     | curl_cffi handles CF; per-ch HTML | **Multi-chapter**; img CDN needs ref |
-| `manhwaread.com`        | none                | mangomic theme; b64 chapterData   | **Multi-chapter**; same theme as hentairead |
+| `manhwaread.com`        | Cloudflare (hard)   | mangomic theme; b64 chapterData; **FlareSolverr required since 2026-10** | **Multi-chapter**; same theme as hentairead |
 | `manhwabuddy.com`       | Cloudflare only     | plain HTML; `data-src` reader imgs | **Multi-chapter**; simplest provider in the matrix |
 | `manhwa18.com`          | Cloudflare only     | plain HTML; `data-src` lazy imgs; rotating CDN | Multi-chapter NSFW manhwa; chapters use multiple CDN hosts |
 | `manhwa18.net`          | none                | **Inertia.js SPA**; props embedded as JSON in `data-page` | Distinct from `.com` — Laravel+Inertia; same pornwa→min CDN history |
@@ -65,6 +65,7 @@ comix/
 │   ├── mangafire_test.py         End-to-end probe for the mangafire provider
 │   ├── comix_test.py             End-to-end probe for the comix provider (fast + Playwright paths)
 │   ├── webtoonscan_test.py       End-to-end probe for webtoonscan (verifies FlareSolverr)
+│   ├── start_flaresolverr.sh     Start the local FlareSolverr (manhwaread / webtoonscan CF human checks)
 │   ├── repack_to_cbz.py          Pack image folders into CBZs (Library tab's Convert button)
 │   ├── icloud_inventory.py       Read-only walk of iCloud Manga folder → icloud_inventory.json
 │   ├── icloud_match.py           Fuzzy cross-site search per inventory entry (Madara AJAX + comix API + HTML)
@@ -587,6 +588,92 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-10-24 — Library card "Downloading…" line now clears
+- The card status set on dispatch ("Downloading N new chapters…") was
+  never replaced, so it stayed after the download finished.
+  `DownloadBridge.libraryJobFinished(library_url, successful, failed)`
+  fires when a job whose `manga_dict` carries `library_url` ends
+  (`failed = -1` on worker error); `LibraryView` swaps the line for
+  "Downloaded N new chapters" / "N failed". Not emitted for jobs
+  killed by the global cancel (`terminate()`).
+
+### 2026-10-21 — fail fast on Cloudflare human checks (manhwaread)
+- **manhwaread.com now serves Cloudflare's interactive challenge**
+  (`cf-mitigated: challenge`, "Just a moment…") on every request —
+  verified against curl_cffi chrome120/131/safari17/18/firefox133, and
+  Playwright Chromium headless AND visible (never mints
+  `cf_clearance`, same as webtoonscan). The provider-matrix note "no CF
+  challenge in practice" is out of date. Only FlareSolverr can pass it.
+- **New `CloudflareChallengeError(NonRetryableError)`** in
+  `session.py`. When a response is still a human check after the
+  FlareSolverr attempt, `SessionManager.get` raises it with a message
+  naming the host and the remedy (start FlareSolverr / pick another
+  site), instead of returning the 403 for the provider's
+  `raise_for_status` → `retry_with_backoff` to grind through 4 attempts
+  (~15 s per series, ending in a bare "HTTP Error 403:").
+- **Per-host latch, 60 s TTL** (`_challenged_hosts`), mirroring the
+  TLS-block latch: the rest of a bulk check skips the host instantly;
+  starting FlareSolverr recovers within a minute without a restart.
+- **Human checks no longer halve the host's rate limit** — it isn't
+  throttling, and slowing down doesn't change the answer.
+- Callers that catch generic exceptions keep working (comix fast path
+  still falls back to Playwright).
+- **FlareSolverr on this Mac:** installed from source at
+  `~/Documents/FlareSolverr` (v3.5.2, own venv, uses the installed
+  Google Chrome). Start with `scripts/start_flaresolverr.sh`. Two
+  macOS gotchas baked into the script: `HEADLESS=true` means Xvfb
+  (Linux-only) and crashes at startup, so it runs `HEADLESS=false`
+  (a Chrome window flashes while solving); and the default bind is
+  `0.0.0.0`, so it sets `HOST=127.0.0.1`. Verified: manhwaread
+  challenge solved in ~15 s, chapter list + image fetch OK afterwards.
+- **The app starts FlareSolverr itself** (`src/utils/flaresolverr_launcher.py`).
+  On the first Cloudflare human check, `_solve_cloudflare` calls
+  `ensure_running()`: if nothing answers on the (localhost) FlareSolverr
+  URL and an install exists at `flaresolverr_dir` (config; "" =
+  `~/Documents/FlareSolverr`), it launches it with the same env as the
+  script, waits up to 60 s for it, then solves. Lazy on purpose — no
+  Chrome unless a site actually challenges. The process is started in
+  its own process group and killed with its Chrome children at app exit
+  (`atexit`); a FlareSolverr the user started is never touched. Failed
+  launches back off 5 min. Output: `<install>/flaresolverr-autostart.log`.
+  Disable with `"flaresolverr_autostart": false`. The script remains for
+  running it by hand.
+- **FlareSolverr only for a real human check** (`SessionManager._is_human_check`:
+  `cf-mitigated: challenge`, or a 403/503 *HTML* page with challenge
+  markers). Previously ANY 403 from a `Server: cloudflare` host was sent
+  to FlareSolverr — harmless while it never ran, but with auto-start
+  every comix series opened Chrome 4× (once per `retry_with_backoff`
+  attempt): comix answers `403 {"message":"Missing token."}` as JSON,
+  which is the site's own refusal, not a challenge. Also: after taking
+  the lock, the request is retried first, so concurrent workers that
+  hit the same challenge reuse one solve instead of each launching one.
+- **comix.to `/api/v1/manga/{hid}` now needs a token too** (403
+  `missing_token`, 2026-10-21) — the "works without any token" note in
+  the 2026-05-10 entry is out of date, so comix series currently fail
+  to check/update. Not fixed yet.
+- **FlareSolverr's Chrome runs in the background (no window).**
+  `scripts/flaresolverr_hidden.py` wraps FlareSolverr: it monkeypatches
+  `undetected_chromedriver.ChromeOptions` to add the flags in
+  `FS_EXTRA_CHROME_ARGS` (`--headless=new`), then runs FlareSolverr's
+  `flaresolverr.py` unchanged — no edits to the checkout. Chrome's new
+  headless mode still passes manhwaread's Cloudflare check (~12 s), and
+  FlareSolverr strips "Headless" from the User-Agent it reports.
+  Launcher + start script both use it; config `flaresolverr_hidden`
+  (default true) turns it off for debugging. Verified with a `ps`
+  watcher: 3/3 fresh runs, 0 windowed Chrome processes.
+- **Chrome 155 + undetected-chromedriver flakiness, measured:** the
+  first solve after a FlareSolverr start fails 6/6 ("no such window:
+  target window already closed", ~3 s) and the retry passes 6/6; the
+  startup self-test itself dies ~1 in 6 launches with the same error.
+  `--no-first-run` / `--no-default-browser-check` don't help. Handled
+  by the solve retry and `_LAUNCH_ATTEMPTS = 3` in the launcher.
+- **No more FlareSolverr `sessions.create`.** Its persistent-session
+  mode is flaky on macOS ("no such window: target window already
+  closed" within milliseconds, ~half the time); a plain `request.get`
+  solved reliably (~12 s). `_solve_cloudflare` now sends one
+  `request.get` with one retry — the first request after a fresh start
+  sometimes hits the same browser error and the retry passes.
+
 ### 2026-10-21 — Check for Updates: review before download + source detection
 - **New Updates view** (sidebar 🔔, with a pending-count badge).
   "Check for Updates" probes every ongoing library entry and lists
@@ -631,12 +718,35 @@ the what).
   selected" (`LibraryBridge.checkForUpdatesFor(urls)`). Ticked series
   are checked even when marked completed — ticking is explicit. The
   toolbar's "Select all shown" respects the current search/filters.
+- **Per-card "Check for new"** (replaces the card's direct-download
+  "Update" button). `LibraryBridge.checkEntry(url)` runs on its own
+  thread — it doesn't queue behind a full-library check — and reports
+  via `entryCheckFinished(url, QVariantMap)`; the card shows
+  "✦ N new (ch a–b) on <site>" with **Download N new**
+  (`downloadRecommended(url)` = all `newer` chapters from the
+  recommended site) and **Review…** (opens Updates). Note the signal
+  type: a plain `dict` arrives in QML as an opaque object (every field
+  undefined), so QML-bound signals must declare `"QVariantMap"`.
+- **iCloud folder fallback** (`update_check.resolve_folder`). 76 entries
+  pointed at `./downloads/<title>` folders that no longer exist because
+  the user had moved the series into iCloud by hand — every check
+  skipped them as "no files". When the recorded folder has no chapters,
+  the iCloud Manga subfolder is found by fuzzy name (same strict/loose
+  rules as `scripts/missing_chapters.py`) and the entry is repointed
+  there via `LibraryManager.relocate` (origin → `icloud_import`). Also
+  used by the per-card Update probe and the pre-download disk re-check.
+- **Duplicate entries → one review item.** Several entries can resolve
+  to one iCloud folder ("Secret Class" / "Secret Class TOP" / "Secret
+  class"). The review list keeps one item per folder: the one offering
+  more new chapters, or the one the user explicitly checked.
 - **Why a full check covers ~89 of 264 entries:** 175 are completed
   and skipped; of the rest, ~40 have no parseable CBZ chapters (38
   point at `./downloads/...` folders that no longer exist, a few hold
   image folders or per-volume CBZs). Those return instantly and are
   counted as "skipped (no chapter files)" in the summary rather than
-  silently as "up to date".
+  silently as "up to date". (Most of those ~40 were the missing
+  `./downloads` folders fixed by the iCloud fallback below — after it,
+  ~11 remain: image folders, per-volume CBZs, or no iCloud match.)
 - **Results persist** in `pending_updates.json` (project root,
   gitignored) so a long check survives an app restart. `applyUpdates`
   re-reads the folder before dispatching, so chapters moved into

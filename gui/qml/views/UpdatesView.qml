@@ -132,7 +132,14 @@ Item {
     function sourceLabel(src) {
         if (!src) return ""
         var name = src.provider || "?"
-        if (src.error) return name + " — failed: " + src.error.substring(0, 60)
+        if (src.error) {
+            var e = src.error
+            if (e.indexOf("Cloudflare human-verification") >= 0)
+                return name + " — blocked by Cloudflare's human check (start FlareSolverr)"
+            if (e.indexOf("blocked on this network") >= 0)
+                return name + " — blocked on this network (try a VPN)"
+            return name + " — failed: " + e.substring(0, 60)
+        }
         var parts = [name + " — up to ch " + (src.latest || "?")]
         parts.push(src.newer.length > 0 ? ("+" + src.newer.length + " new") : "nothing new")
         if (src.is_detected) parts.push("★ your files came from here")

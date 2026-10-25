@@ -202,6 +202,31 @@ class NetworkBlockedError(NonRetryableError):
         )
 
 
+class CloudflareChallengeError(NonRetryableError):
+    """
+    Raised when a site answers with Cloudflare's interactive "are you
+    human" check (``cf-mitigated: challenge``) and FlareSolverr couldn't
+    clear it — usually because it isn't running. curl_cffi beats
+    Cloudflare's *fingerprint* checks, but not this one, and vanilla
+    Playwright Chromium is detected on these deployments too (verified
+    on manhwaread.com and webtoonscan.com). Retrying just burns time.
+    """
+
+    def __init__(self, host: str, flaresolverr_running: bool):
+        self.host = host
+        self.flaresolverr_running = flaresolverr_running
+        remedy = (
+            "FlareSolverr is running but couldn't pass it either."
+            if flaresolverr_running
+            else "Start FlareSolverr (http://localhost:8191) to get past it."
+        )
+        super().__init__(
+            f"{host} is showing a Cloudflare human-verification check that "
+            f"the downloader can't solve on its own. {remedy} Or pick "
+            f"another site for this series."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Session manager
 # ---------------------------------------------------------------------------
@@ -228,6 +253,11 @@ class SessionManager:
         self.flaresolverr_url = self._config.get(
             "flaresolverr_url", "http://localhost:8191/v1"
         )
+        # Launch the local FlareSolverr install on the first Cloudflare
+        # human check (src/utils/flaresolverr_launcher.py).
+        self.flaresolverr_autostart = bool(self._config.get("flaresolverr_autostart", True))
+        self.flaresolverr_dir = self._config.get("flaresolverr_dir", "") or None
+        self.flaresolverr_hidden = bool(self._config.get("flaresolverr_hidden", True))
         self.use_curl_cffi = bool(self._config.get("use_curl_cffi", True)) and HAS_CURL_CFFI
         self.impersonate = self._config.get("impersonate", "chrome120")
         self.verify_ssl = bool(self._config.get("verify_ssl", True))
@@ -241,6 +271,13 @@ class SessionManager:
         self._fs_warned = False  # don't spam if FlareSolverr is offline
         # host -> monotonic timestamp of the last observed TLS-level block
         self._blocked_hosts: dict[str, float] = {}
+        # host -> (monotonic timestamp, flaresolverr_running) of the last
+        # unsolved Cloudflare human check. Same TTL as the TLS latch:
+        # a bulk check skips the host's other series instantly, and
+        # starting FlareSolverr recovers within a minute.
+        self._challenged_hosts: dict[str, tuple[float, bool]] = {}
+        # None = unknown yet; set by _solve_cloudflare.
+        self._fs_reachable: bool | None = None
         self._session = self._make_session()
 
         if self.use_curl_cffi:
@@ -295,6 +332,11 @@ class SessionManager:
         # no socket, no rate-limiter token, no FlareSolverr round-trip.
         if self._is_latched_blocked(host):
             raise NetworkBlockedError(host)
+        with self._lock:
+            latched = self._challenged_hosts.get(host)
+            if latched and time.monotonic() - latched[0] < _BLOCK_LATCH_TTL:
+                raise CloudflareChallengeError(host, latched[1])
+            self._challenged_hosts.pop(host, None)
 
         if force_flare:
             with self._lock:
@@ -314,7 +356,6 @@ class SessionManager:
             raise
 
         # --- analyze response --------------------------------------
-        is_cloudflare = "cloudflare" in response.headers.get("Server", "").lower()
         is_throttle = response.status_code in (429, 503)
         is_blocked = response.status_code == 403
         is_error = response.status_code in (403, 429, 503)
@@ -339,24 +380,49 @@ class SessionManager:
             except Exception:
                 pass
 
+        # Cloudflare's interactive check. Not throttling — halving the
+        # host's rate wouldn't change the answer.
+        is_human_check = self._is_human_check(response)
+
         # --- adaptive feedback -------------------------------------
-        if is_throttle or is_blocked:
+        if is_human_check:
+            pass
+        elif is_throttle or is_blocked:
             limiter.report_throttle()
         elif response.status_code == 200 and not has_challenge and not is_empty_result:
             limiter.report_success()
 
         # --- escalation --------------------------------------------
-        if is_error or has_challenge or is_empty_result:
-            if is_cloudflare or has_challenge or is_empty_result:
-                with self._lock:
+        # FlareSolverr only for a real Cloudflare human check. A plain
+        # 403 from a Cloudflare-fronted host is usually the *site's*
+        # answer (comix: JSON {"message": "Missing token."}) — sending
+        # that to FlareSolverr just opens a Chrome window for nothing,
+        # once per retry, now that FlareSolverr is auto-started.
+        if is_human_check:
+            with self._lock:
+                # Another thread may have solved this host while we
+                # waited for the lock — try again before launching a solve.
+                limiter.acquire()
+                response = self._raw_get(url, **kwargs)
+                if self._is_human_check(response):
                     logger.warning(
-                        f"Block/challenge for {url} (status={response.status_code}); "
-                        f"trying FlareSolverr fallback..."
+                        f"Cloudflare human check for {url}; trying FlareSolverr..."
                     )
                     if self._solve_cloudflare(url):
                         limiter.acquire()
                         response = self._raw_get(url, **kwargs)
-            elif is_throttle:
+            if self._is_human_check(response):
+                # FlareSolverr didn't clear it (or isn't available).
+                running = bool(self._fs_reachable)
+                with self._lock:
+                    first = host not in self._challenged_hosts
+                    self._challenged_hosts[host] = (time.monotonic(), running)
+                error = CloudflareChallengeError(host, running)
+                if first:
+                    logger.warning(str(error))
+                raise error
+        elif is_error or is_empty_result:
+            if is_throttle:
                 wait = random.uniform(3.0, 8.0)
                 logger.warning(
                     f"Server throttled (status={response.status_code}); backing off {wait:.1f}s"
@@ -368,6 +434,19 @@ class SessionManager:
         return response
 
     # -- internals ----------------------------------------------------
+
+    def _is_human_check(self, response) -> bool:
+        """True for Cloudflare's interactive challenge page."""
+        if response.headers.get("cf-mitigated", "").lower() == "challenge":
+            return True
+        if response.status_code not in (403, 503):
+            return False
+        if "text/html" not in response.headers.get("Content-Type", "").lower():
+            return False
+        try:
+            return any(m in response.text for m in self._CHALLENGE_MARKERS)
+        except Exception:
+            return False
 
     def _raw_get(self, url: str, **kwargs: Any):
         """Plain GET against the underlying session, with no policy."""
@@ -407,56 +486,53 @@ class SessionManager:
         """Forget every latched block (e.g. after connecting a VPN)."""
         with self._lock:
             self._blocked_hosts.clear()
+            self._challenged_hosts.clear()
 
     def _solve_cloudflare(self, target_url: str) -> bool:
         """Use FlareSolverr to acquire clearance cookies."""
+        if self.flaresolverr_autostart:
+            from .flaresolverr_launcher import ensure_running
+            ensure_running(self.flaresolverr_url, self.flaresolverr_dir,
+                           hidden=self.flaresolverr_hidden)
+        # One-shot request.get, no sessions.create: FlareSolverr's
+        # persistent-session mode is flaky on macOS ("no such window:
+        # target window already closed" within milliseconds), while a
+        # plain request solved every time in testing. One retry covers
+        # the occasional browser hiccup.
         try:
-            session_res = std_requests.post(
-                self.flaresolverr_url,
-                json={"cmd": "sessions.create"},
-                timeout=10,
-            ).json()
-
-            if session_res.get("status") != "ok":
-                logger.error(f"FlareSolverr session.create failed: {session_res}")
+            req_res: dict = {}
+            for attempt in range(2):
+                req_res = std_requests.post(
+                    self.flaresolverr_url,
+                    json={"cmd": "request.get", "url": target_url, "maxTimeout": 60000},
+                    timeout=75,
+                ).json()
+                self._fs_reachable = True
+                if req_res.get("status") == "ok":
+                    break
+                # Expected once per fresh FlareSolverr (first solve after
+                # start always hits Chrome's "target window already closed").
+                logger.info(
+                    f"FlareSolverr attempt {attempt + 1} failed: "
+                    f"{str(req_res.get('message', ''))[:200]}"
+                )
+            if req_res.get("status") != "ok":
                 return False
-            session_id = session_res.get("session")
 
-            req_res = std_requests.post(
-                self.flaresolverr_url,
-                json={
-                    "cmd": "request.get",
-                    "url": target_url,
-                    "session": session_id,
-                    "maxTimeout": 60000,
-                },
-                timeout=65,
-            ).json()
-
-            success = False
-            if req_res.get("status") == "ok":
-                solution = req_res.get("solution", {})
-                cookies = solution.get("cookies", [])
-                for ck in cookies:
-                    self._session.cookies.set(
-                        ck["name"], ck["value"], domain=ck.get("domain", "")
-                    )
-                ua = solution.get("userAgent")
-                if ua:
-                    self._session.headers.update({"User-Agent": ua})
-                logger.info(f"FlareSolverr bypass OK ({len(cookies)} cookies)")
-                success = True
-            else:
-                logger.error(f"FlareSolverr request failed: {req_res}")
-
-            std_requests.post(
-                self.flaresolverr_url,
-                json={"cmd": "sessions.destroy", "session": session_id},
-                timeout=10,
-            )
-            return success
+            solution = req_res.get("solution", {})
+            cookies = solution.get("cookies", [])
+            for ck in cookies:
+                self._session.cookies.set(
+                    ck["name"], ck["value"], domain=ck.get("domain", "")
+                )
+            ua = solution.get("userAgent")
+            if ua:
+                self._session.headers.update({"User-Agent": ua})
+            logger.info(f"FlareSolverr bypass OK ({len(cookies)} cookies)")
+            return True
 
         except std_requests.exceptions.ConnectionError:
+            self._fs_reachable = False
             # FlareSolverr not running — that's fine in the new model.
             # Warn once, then go quiet.
             if not self._fs_warned:

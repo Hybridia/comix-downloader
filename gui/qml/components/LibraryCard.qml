@@ -10,6 +10,10 @@ Rectangle {
     property bool busy: false
     // Ticked for "Check selected" (Library toolbar → Updates view).
     property bool selected: false
+    // Result of this card's "Check" (LibraryBridge.entryCheckFinished
+    // summary) — drives the inline "N new … [Download]" row.
+    property var checkInfo: null
+    readonly property bool hasNewChapters: !!checkInfo && checkInfo.new_count > 0
 
     signal updateRequested()
     signal removeRequested()
@@ -18,6 +22,8 @@ Rectangle {
     signal openAlternativeRequested(string url)
     signal convertToCbzRequested()
     signal selectToggled()
+    signal downloadNewRequested()
+    signal reviewRequested()
     // statusKey is one of: "completed" | "cancelled" | "ongoing" |
     // "hiatus" | "" (clear/auto). manual=true flags as user override
     // so the next probe won't overwrite it.
@@ -82,6 +88,7 @@ Rectangle {
     Layout.preferredHeight: {
         var h = showConvertButton ? 162 : 132
         if (hasAlternatives) h += 30
+        if (hasNewChapters) h += 36
         return h
     }
 
@@ -335,6 +342,62 @@ Rectangle {
                 elide: Text.ElideRight
             }
 
+            // NEW CHAPTERS — shown after this card's Check found some.
+            // "Download" takes every new chapter from the recommended
+            // site; "Review" opens the Updates view to pick chapters or
+            // a different site.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                visible: root.hasNewChapters
+                spacing: 10
+
+                Text {
+                    text: root.hasNewChapters
+                          ? ("✦ " + checkInfo.new_count + " new ("
+                             + (checkInfo.new_count === 1 ? "ch " + checkInfo.first
+                                : "ch " + checkInfo.first + "–" + checkInfo.last)
+                             + ") on " + checkInfo.provider)
+                          : ""
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    color: success
+                }
+
+                Button {
+                    Layout.preferredHeight: 26
+                    text: "⬇ Download " + (root.hasNewChapters ? checkInfo.new_count : 0) + " new"
+                    onClicked: root.downloadNewRequested()
+                    background: Rectangle {
+                        radius: 6
+                        color: parent.hovered ? Qt.lighter(success, 1.15) : success
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#1A1A1F"
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 10
+                        rightPadding: 10
+                    }
+                }
+
+                Text {
+                    text: "Review…"
+                    font.pixelSize: 12
+                    color: accentPrimary
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.reviewRequested()
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
             // ALSO ON — alternative sources discovered via the iCloud
             // cross-site matcher. Each chip shows the provider name +
             // chapter count + status glyph; clicking opens the URL in
@@ -479,9 +542,13 @@ Rectangle {
             Button {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
-                text: root.busy ? "Checking…" : "Update"
+                text: root.busy ? "Checking…" : "Check for new"
                 enabled: !root.busy && entry
                 onClicked: root.updateRequested()
+                ToolTip.visible: hovered && !root.busy
+                ToolTip.delay: 600
+                ToolTip.text: "Look for new chapters on this series now.\n" +
+                              "Shows what's new here — nothing downloads until you click Download."
 
                 background: Rectangle {
                     radius: 6

@@ -359,18 +359,15 @@ class UpdateProbeWorker(QThread):
     @staticmethod
     def _on_disk_folder(entry: dict) -> Optional[Path]:
         """
-        Compute the folder this library entry's chapters live in.
-        For iCloud-imported entries that's the iCloud subfolder; for
-        in-app downloads it's ``./downloads/<safe_title>/``. Returns
-        ``None`` if the entry is malformed.
+        Compute the folder this library entry's chapters live in —
+        the recorded ``download_path/folder``, or the matching iCloud
+        folder when the recorded one has no chapters (moved there by
+        hand). ``None`` if the entry is malformed.
         """
         if not entry:
             return None
-        dp = entry.get("download_path") or ""
-        folder = entry.get("folder") or ""
-        if not dp or not folder:
-            return None
-        return Path(dp) / folder
+        from src.utils.update_check import resolve_folder
+        return resolve_folder(entry)
 
     @staticmethod
     def _diff_against_disk(chapters: list, on_disk: set[str]) -> list:
@@ -455,6 +452,9 @@ class LibraryBridge(QObject):
     updateCheckProgress = pyqtSignal(int, int, str, str)  # done, total, url, title
     updateCheckFinished = pyqtSignal(int, int, int, int, int)  # with_updates, up_to_date, failed, skipped_completed, no_files
     pendingUpdatesChanged = pyqtSignal()
+    # Single-series check from a Library card: library_url, summary
+    # ({new_count, first, last, provider, gaps, error, no_files}).
+    entryCheckFinished = pyqtSignal(str, "QVariantMap")
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -486,6 +486,7 @@ class LibraryBridge(QObject):
         # Tally: [with_updates, up_to_date, failed, skipped_completed, no_files]
         self._check_stats: list[int] = [0, 0, 0, 0, 0]
         self._pending: dict[str, dict] = {}
+        self._single_workers: list[UpdateCheckWorker] = []
         self._pending_checked_at: str = ""
         self._load_pending()
 
@@ -930,7 +931,7 @@ class LibraryBridge(QObject):
 
         from src.utils.chapters import chapter_numbers_on_disk
         from src.utils.library import shared as _library
-        from src.utils.update_check import entry_folder
+        from src.utils.update_check import resolve_folder
 
         queued = 0
         for sel in selection or []:
@@ -948,7 +949,7 @@ class LibraryBridge(QObject):
             # Re-read disk: chapters moved into iCloud since the check
             # shouldn't be fetched again.
             entry = _library().get_entry(url) or {}
-            folder = entry_folder(entry)
+            folder = resolve_folder(entry)
             have = chapter_numbers_on_disk(folder) if folder else set()
 
             chapters = [
@@ -970,27 +971,105 @@ class LibraryBridge(QObject):
             self.pendingUpdatesChanged.emit()
         return queued
 
-    def _on_check_result(self, url: str, result: dict) -> None:
+    @pyqtSlot(str)
+    def checkEntry(self, library_url: str) -> None:
+        """
+        Check one series right now (Library card "Check" button). Runs
+        on its own thread, so it doesn't wait behind a full-library
+        check. The result lands in the review list AND comes back via
+        ``entryCheckFinished`` so the card can show it inline.
+        """
+        worker = UpdateCheckWorker([library_url], self)
+        worker.resultReady.connect(self._on_single_result)
+        worker.finished.connect(lambda w=worker: self._reap_single(w))
+        self._single_workers.append(worker)
+        worker.start()
+
+    @pyqtSlot(str, result=int)
+    def downloadRecommended(self, library_url: str) -> int:
+        """Approve the card's suggestion: every new chapter from the
+        recommended site. Returns the number of chapters queued."""
+        from src.utils.update_check import has_updates
+        result = self._pending.get(library_url)
+        if not has_updates(result):
+            return 0
+        idx = result["recommended"]
+        numbers = [c["norm"] for c in result["sources"][idx]["newer"]]
+        return self.applyUpdates([{
+            "library_url": library_url, "source_index": idx, "numbers": numbers,
+        }])
+
+    def _on_single_result(self, url: str, result: dict) -> None:
+        self._store_result(url, result, prefer_this=True)
+        self.entryCheckFinished.emit(url, self._summarize(result))
+
+    def _reap_single(self, worker: "UpdateCheckWorker") -> None:
+        try:
+            self._single_workers.remove(worker)
+        except ValueError:
+            pass
+        worker.deleteLater()
+
+    @staticmethod
+    def _summarize(result: dict) -> dict:
+        from src.utils.update_check import has_updates
+        out = {"new_count": 0, "first": "", "last": "", "provider": "",
+               "gaps": 0, "error": result.get("error") or "",
+               "no_files": not result.get("on_disk_count")}
+        if has_updates(result):
+            src = result["sources"][result["recommended"]]
+            out.update(new_count=len(src["newer"]), first=src["newer"][0]["number"],
+                       last=src["newer"][-1]["number"], provider=src["provider"],
+                       gaps=len(src["gaps"]))
+        return out
+
+    def _store_result(self, url: str, result: dict, prefer_this: bool = False) -> str:
+        """
+        Record one check result in the review list. Returns its bucket:
+        "updates" | "up_to_date" | "failed" | "no_files".
+
+        Several library entries can resolve to the same iCloud folder
+        (e.g. "Secret Class" / "Secret Class TOP" from different sites);
+        only one review item per folder is kept — the one offering more
+        new chapters, or the explicitly-checked one for ``prefer_this``.
+        """
         from src.utils.update_check import has_updates
 
+        self._pending_checked_at = result.get("checked_at") or self._pending_checked_at
         if has_updates(result):
-            self._check_stats[0] += 1
-            self._pending[url] = result
+            bucket = "updates"
+            mine = len(result["sources"][result["recommended"]]["newer"])
+            folder = result.get("folder")
+            for other_url, other in list(self._pending.items()):
+                if other_url == url or not folder or other.get("folder") != folder:
+                    continue
+                theirs = len(other["sources"][other["recommended"]]["newer"])
+                if prefer_this or mine > theirs:
+                    self._pending.pop(other_url, None)
+                else:
+                    bucket = "up_to_date"  # covered by the other item
+            if bucket == "updates":
+                self._pending[url] = result
         else:
+            self._pending.pop(url, None)
             if result.get("error"):
-                self._check_stats[2] += 1
+                bucket = "failed"
             elif not result.get("on_disk_count"):
                 # No parseable CBZ chapters (folder gone, image folders,
                 # per-volume files) — nothing to diff against.
-                self._check_stats[4] += 1
+                bucket = "no_files"
             else:
-                self._check_stats[1] += 1
-            self._pending.pop(url, None)
-        self._pending_checked_at = result.get("checked_at") or self._pending_checked_at
+                bucket = "up_to_date"
         self._save_pending()
         self.pendingUpdatesChanged.emit()
-        # Status badges / last-checked stamps may have moved.
+        # Status badges / last-checked stamps / relocated folders.
         self.entriesChanged.emit()
+        return bucket
+
+    def _on_check_result(self, url: str, result: dict) -> None:
+        bucket = self._store_result(url, result)
+        idx = {"updates": 0, "up_to_date": 1, "failed": 2, "no_files": 4}[bucket]
+        self._check_stats[idx] += 1
 
     def _on_check_finished(self) -> None:
         worker, self._check_worker = self._check_worker, None

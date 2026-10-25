@@ -33,6 +33,9 @@ class ConfigManager:
         "chapters_display_limit": 20,  # 0 = show all
         # HTTP / anti-block settings
         "flaresolverr_url": "http://localhost:8191/v1",
+        "flaresolverr_autostart": True,       # launch local FlareSolverr on first CF human check
+        "flaresolverr_dir": "",               # "" = ~/Documents/FlareSolverr
+        "flaresolverr_hidden": True,          # macOS: run its Chrome in the background
         "use_curl_cffi": True,                # browser fingerprinting via curl_cffi
         "impersonate": "chrome120",           # any curl_cffi impersonate target
         "requests_per_second_per_host": 4.0,  # adaptive starting rate

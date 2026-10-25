@@ -24,6 +24,7 @@ The result is a plain JSON-able dict so the GUI can persist it in
 ``pending_updates.json`` and show it for approval later.
 """
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -85,6 +86,64 @@ def entry_folder(entry: dict) -> Optional[Path]:
     if not dp or not folder:
         return None
     return Path(dp) / folder
+
+
+ICLOUD_ROOT = (
+    Path.home() / "Library" / "Mobile Documents"
+    / "com~apple~CloudDocs" / "Manga"
+)
+
+
+def _fuzz(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _fuzz_loose(s: str) -> str:
+    """Also drop TOP / END / Uncensored / … tokens ("Secret Class TOP"
+    vs the iCloud folder "Secret Class")."""
+    s = re.sub(r"\b(top|end|uncensored|decensored|raw|hot|complete)\b", "",
+               (s or "").lower())
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def _icloud_folder_for(entry: dict) -> Optional[Path]:
+    """
+    The user's iCloud Manga subfolder for this entry, by fuzzy match on
+    folder name then title (strict, then suffix-stripped). Same rules as
+    ``scripts/missing_chapters.py``. Lists directory names only — and
+    only subfolders, so ``Manga/.reader_state.json`` is never touched.
+    """
+    try:
+        dirs = [p for p in ICLOUD_ROOT.iterdir()
+                if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        return None
+    for fuzz in (_fuzz, _fuzz_loose):
+        idx: dict[str, Path] = {}
+        for d in dirs:
+            idx.setdefault(fuzz(d.name), d)
+        for candidate in (entry.get("folder"), entry.get("title")):
+            key = fuzz(candidate or "")
+            if key and key in idx:
+                return idx[key]
+    return None
+
+
+def resolve_folder(entry: dict) -> Optional[Path]:
+    """
+    Where this entry's chapters actually are. The recorded
+    ``download_path/folder`` wins when it has chapters; otherwise look
+    for the series in iCloud — the common case being an in-app download
+    the user later moved into iCloud, leaving the entry pointing at a
+    ``./downloads/...`` folder that no longer exists.
+    """
+    recorded = entry_folder(entry)
+    if recorded and chapter_numbers_on_disk(recorded):
+        return recorded
+    icloud = _icloud_folder_for(entry)
+    if icloud and chapter_numbers_on_disk(icloud):
+        return icloud
+    return recorded
 
 
 def _num_key(n: str) -> float:
@@ -172,7 +231,15 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
-    folder = entry_folder(entry)
+    folder = resolve_folder(entry)
+    result["folder"] = str(folder or "")
+    if folder and folder != entry_folder(entry):
+        # Found it in iCloud — repoint the entry so Folder / Update /
+        # the next check all use the right place.
+        try:
+            _library().relocate(library_url, str(folder.parent), folder.name)
+        except Exception as exc:
+            logger.warning("relocate failed: %s", exc)
     on_disk = chapter_numbers_on_disk(folder) if folder else set()
     if not on_disk:
         # Nothing on disk ⇒ not a series being followed (abandoned

@@ -40,6 +40,12 @@ Item {
     // and not get distracted by doujinshi one-shots.
     property bool hideHentai: false
 
+    // Per-card "Check" state: url → summary from entryCheckFinished,
+    // and url → true while that card's check is running.
+    property var checkInfoByUrl: ({})
+    property var checkingUrls: ({})
+    property int checkVersion: 0
+
     // Manual selection for "Check selected" — url → true. Bumping
     // selVersion re-evaluates bindings (JS object mutation doesn't).
     property var selectedUrls: ({})
@@ -861,16 +867,32 @@ Item {
                         entry: libraryView.entryFor(model.source_url)
                         statusMessage: libraryView.statusByUrl[model.source_url] || ""
                         busy: libraryView.busyUrl === model.source_url
+                              || (libraryView.checkVersion, !!libraryView.checkingUrls[model.source_url])
+                        checkInfo: (libraryView.checkVersion,
+                                    libraryView.checkInfoByUrl[model.source_url] || null)
                         selected: (libraryView.selVersion,
                                    !!libraryView.selectedUrls[model.source_url])
                         onSelectToggled: libraryView.toggleSelected(model.source_url)
 
+                        // "Check for new" — probe-only; the result shows
+                        // inline and nothing downloads until approved.
                         onUpdateRequested: {
-                            libraryView.busyUrl = model.source_url
+                            libraryView.checkingUrls[model.source_url] = true
+                            delete libraryView.checkInfoByUrl[model.source_url]
+                            libraryView.checkVersion++
                             libraryView.setStatus(model.source_url,
                                                   "Checking for new chapters…")
-                            LibraryBridge.updateEntry(model.source_url)
+                            LibraryBridge.checkEntry(model.source_url)
                         }
+                        onDownloadNewRequested: {
+                            var n = LibraryBridge.downloadRecommended(model.source_url)
+                            delete libraryView.checkInfoByUrl[model.source_url]
+                            libraryView.checkVersion++
+                            libraryView.setStatus(model.source_url, n > 0
+                                ? "Downloading " + n + " new chapter" + (n === 1 ? "" : "s") + "…"
+                                : "Nothing to download — already on disk")
+                        }
+                        onReviewRequested: libraryView.updatesRequested()
                         onRemoveRequested: {
                             LibraryBridge.removeEntry(model.source_url)
                         }
@@ -907,6 +929,17 @@ Item {
 
         function onEntriesChanged() {
             libraryView.refresh()
+        }
+        function onEntryCheckFinished(url, info) {
+            delete libraryView.checkingUrls[url]
+            if (info.new_count > 0) libraryView.checkInfoByUrl[url] = info
+            libraryView.checkVersion++
+            var msg
+            if (info.error) msg = "Check failed: " + info.error
+            else if (info.no_files) msg = "No chapter files found in this series' folder"
+            else if (info.new_count > 0) msg = ""
+            else msg = "Up to date"
+            libraryView.setStatus(url, msg)
         }
         function onUpdateStarted(url, title, count) {
             libraryView.busyUrl = ""
@@ -1016,6 +1049,17 @@ Item {
         target: DownloadBridge
         function onDownloadFinished(jobId, successful, failed) {
             libraryView.refresh()
+        }
+        // Replace the card's "Downloading N new chapters…" line once
+        // a Library-dispatched job ends.
+        function onLibraryJobFinished(url, successful, failed) {
+            var msg
+            if (failed < 0) msg = "Download failed — see the Downloads tab"
+            else if (failed > 0) msg = "Downloaded " + successful + ", " + failed
+                                       + " failed — see the Downloads tab"
+            else msg = "Downloaded " + successful + " new chapter"
+                       + (successful === 1 ? "" : "s")
+            libraryView.setStatus(url, msg)
         }
     }
 }

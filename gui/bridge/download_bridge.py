@@ -315,6 +315,11 @@ class DownloadBridge(QObject):
     jobError = pyqtSignal(str, str)  # job_id, message — failures inside an active worker
     jobPaused = pyqtSignal(str, bool)  # job_id, paused — UI flips card status badge
     jobCancelled = pyqtSignal(str)  # job_id — UI marks card as Cancelled
+    # Fires when a job dispatched by the Library (manga_dict carries
+    # ``library_url``) ends, so the Library card can drop its
+    # "Downloading N new chapters…" line. failed == -1 means the
+    # worker errored out before finishing.
+    libraryJobFinished = pyqtSignal(str, int, int)  # library_url, successful, failed
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -337,9 +342,19 @@ class DownloadBridge(QObject):
         slug = "".join(c if c.isalnum() else "_" for c in title)[:32]
         return f"{int(_time.time() * 1000)}-{seq}-{slug}"
 
-    def _on_job_finished(self, job_id: str, *_args) -> None:
+    def _on_job_finished(self, job_id: str, successful: int, failed: int) -> None:
         with self._workers_lock:
-            self._workers.pop(job_id, None)
+            worker = self._workers.pop(job_id, None)
+        url = worker.manga_dict.get("library_url") if worker else None
+        if url:
+            self.libraryJobFinished.emit(url, successful, failed)
+
+    def _on_job_error(self, job_id: str, _message: str) -> None:
+        with self._workers_lock:
+            worker = self._workers.pop(job_id, None)
+        url = worker.manga_dict.get("library_url") if worker else None
+        if url:
+            self.libraryJobFinished.emit(url, 0, -1)
     
     @pyqtSlot('QVariant', 'QVariant', str, str)
     def startDownload(self, manga: dict, chapters, format_type: str, scanlator: str):
@@ -447,7 +462,7 @@ class DownloadBridge(QObject):
         # Self-evict from the workers dict on finish/error so we don't
         # leak references to completed QThreads.
         worker.finished.connect(self._on_job_finished)
-        worker.error.connect(self._on_job_finished)
+        worker.error.connect(self._on_job_error)
         with self._workers_lock:
             self._workers[job_id] = worker
         worker.start()

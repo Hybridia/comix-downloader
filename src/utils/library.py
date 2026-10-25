@@ -68,6 +68,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_PATH = _PROJECT_ROOT / "library.json"
 
 _SCHEMA_VERSION = 1
+_ICLOUD_ROOT = (
+    Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs"
+).resolve()
 
 _lock = threading.RLock()
 _singleton: Optional["LibraryManager"] = None
@@ -459,6 +462,25 @@ class LibraryManager:
                 if not entry.get("status_manual"):
                     entry["status"] = normalized
             self._save()
+
+    def relocate(self, source_url: str, download_path: str, folder: str) -> bool:
+        """
+        Point an entry at the folder its chapters really live in (e.g.
+        after the user moved an in-app download into iCloud). Mirrors
+        what ``scripts/library_relocate_to_icloud.py`` does in bulk.
+        """
+        with _lock:
+            self._reload_if_changed()
+            i = self._index(source_url)
+            if i < 0:
+                return False
+            entry = self._data["entries"][i]
+            entry["download_path"] = download_path
+            entry["folder"] = folder
+            if Path(download_path).resolve().is_relative_to(_ICLOUD_ROOT):
+                entry["origin"] = "icloud_import"
+            self._save()
+            return True
 
     def set_detected_sources(self, source_url: str, sources: list) -> None:
         """
