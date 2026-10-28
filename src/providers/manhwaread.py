@@ -182,6 +182,13 @@ class ManhwareadProvider(Provider):
             cover = og_img.group(1).strip()
             if cover.startswith("http://"):
                 cover = "https://" + cover[len("http://"):]
+            if not re.match(r"https://[^/]", cover):
+                # Since 2026-10 the site emits a hostless og:image
+                # ("https:/wp-content/..."); the cover <img> with the same
+                # file name still carries the real mancover.xyz URL.
+                name = re.escape(cover.rsplit("/", 1)[-1])
+                img = re.search(r'<img[^>]+src="(https?://[^"]+/' + name + ')"', html)
+                cover = img.group(1) if img else None
             out["cover_url"] = cover
 
         og_desc = _OG_DESC_RE.search(html)

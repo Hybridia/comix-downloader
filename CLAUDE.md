@@ -609,6 +609,15 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-10-26 — manhwaread covers missing
+- manhwaread.com now emits a hostless `og:image`
+  (`https:/wp-content/uploads/…`), so Browse showed the 📖 placeholder
+  instead of the cover. When `og:image` has no host, the provider takes
+  the page's `<img>` with the same file name (real host:
+  `mancover.xyz/cover/…`). Test: `tests/test_manhwaread_cover.py`.
+- 3 library entries had saved the broken URL; repaired in place
+  (`https:/wp-content/uploads/` → `https://mancover.xyz/cover/`).
+
 ### 2026-10-25 — GUI themes + motion (Ink & Sakura / Neon Tokyo / Ember)
 - **Three live themes**, picked in Settings → Appearance with a
   circular colour wipe from the click point (`fx/ThemeWipe.qml`:
