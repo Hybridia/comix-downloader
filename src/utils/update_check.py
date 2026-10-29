@@ -166,20 +166,29 @@ def chapters_on_disk(entry: dict, folder: Optional[Path],
     nothing is opened.
     """
     have = chapter_numbers_on_disk(folder) if folder else set()
+    for d in downloads_folders(entry, folder, downloads_root):
+        have |= chapter_numbers_on_disk(d)
+    return have
+
+
+def downloads_folders(entry: dict, folder: Optional[Path],
+                      downloads_root: Optional[Path] = None) -> list[Path]:
+    """This series' folder(s) in the downloads folder (not ``folder`` itself)."""
     root = downloads_root if downloads_root is not None else globals()["downloads_root"]()
     try:
         dirs = [p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")]
     except OSError:
-        return have
+        return []
     names = [entry.get("folder"), entry.get("title"), *(entry.get("alt_titles") or []),
              *[a.get("title_on_site") for a in entry.get("alternative_sources") or []]]
     keys = {f(n) for n in names if n for f in (_fuzz, _fuzz_loose)} - {""}
+    out = []
     for d in dirs:
         if folder and d.resolve() == Path(folder).resolve():
             continue
         if _fuzz(d.name) in keys or _fuzz_loose(d.name) in keys:
-            have |= chapter_numbers_on_disk(d)
-    return have
+            out.append(d)
+    return out
 
 
 def _num_key(n: str) -> float:
@@ -290,7 +299,19 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
     # ── Which sites did these chapters come from? ────────────────────
     scan = provenance.scan_folder(folder)
     result["cloud_only"] = scan["cloud_only"]
-    detected = provenance.merge_detected(entry.get("detected_sources"), scan["sources"])
+    # CBZs waiting in ./downloads are always on this Mac — read their site too,
+    # so chapters downloaded from another site count before they reach iCloud.
+    scanned = {s["url"]: dict(s) for s in scan["sources"]}
+    for d in downloads_folders(entry, folder):
+        for s in provenance.scan_folder(d)["sources"]:
+            cur = scanned.get(s["url"])
+            if cur is None:
+                scanned[s["url"]] = dict(s)
+            else:
+                cur["chapters"] += s["chapters"]
+                if _num_key(s["latest"]) > _num_key(cur["latest"]):
+                    cur["latest"] = s["latest"]
+    detected = provenance.merge_detected(entry.get("detected_sources"), list(scanned.values()))
     result["detected"] = detected
     if detected != (entry.get("detected_sources") or []):
         try:
@@ -316,6 +337,14 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
 
     for s in detected:
         _add(s.get("url"), is_detected=True)
+    # Sites chapters were downloaded from (recorded at download time) —
+    # always checked, even while those chapters still sit in ./downloads.
+    downloaded_last: dict[str, str] = {}
+    for s in entry.get("download_sources") or []:
+        key = _normalize_url(s.get("url") or "")
+        if key:
+            downloaded_last.setdefault(key, str(s.get("last_chapter") or ""))
+            _add(key, is_downloaded=True)
     _add(library_url, is_primary=True)
     for alt in entry.get("alternative_sources") or []:
         _add(alt.get("url"), is_alt=True,
@@ -325,7 +354,7 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
     for c in candidates:
         if cancelled():
             break
-        if c.get("is_alt") and not (c.get("is_detected") or c.get("is_primary")):
+        if c.get("is_alt") and not (c.get("is_detected") or c.get("is_primary") or c.get("is_downloaded")):
             # Only worth a network round-trip if the enricher saw this
             # mirror further along than anything we've found so far.
             if c["alt_latest"] <= best_latest:
@@ -333,6 +362,8 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
         probe = _probe(c["url"], on_disk, on_disk_max)
         probe["is_detected"] = bool(c.get("is_detected"))
         probe["is_primary"] = bool(c.get("is_primary"))
+        probe["is_downloaded"] = bool(c.get("is_downloaded"))
+        probe["downloaded_last"] = downloaded_last.get(c["url"], "")
         if probe["is_primary"] and not probe["error"]:
             try:
                 _library().mark_checked(library_url, manga_status=probe["status"])
@@ -347,7 +378,7 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
     for i, s in enumerate(result["sources"]):
         if not s["newer"]:
             continue
-        key = (len(s["newer"]), s["is_detected"], s["is_primary"])
+        key = (len(s["newer"]), s["is_detected"] or s.get("is_downloaded", False), s["is_primary"])
         if best_key is None or key > best_key:
             best, best_key = i, key
     result["recommended"] = best

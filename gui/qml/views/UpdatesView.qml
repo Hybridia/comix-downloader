@@ -148,7 +148,9 @@ Item {
         var parts = [name + " — up to ch " + (src.latest || "?")]
         parts.push(src.newer.length > 0 ? ("+" + src.newer.length + " new") : "nothing new")
         if (src.is_detected) parts.push("★ your files came from here")
-        else if (src.is_primary) parts.push("main site")
+        if (src.is_downloaded)
+            parts.push("↓ you downloaded " + (src.downloaded_last ? "ch " + src.downloaded_last + " " : "") + "here")
+        if (!src.is_detected && !src.is_downloaded && src.is_primary) parts.push("main site")
         return parts.join(" · ")
     }
 

@@ -174,6 +174,32 @@ def _normalize_url(url: str) -> str:
     return urlunparse((scheme, netloc, path, p.params, p.query, ""))
 
 
+def _remember_download_source(entry: dict, url: str, provider: str, number: str) -> None:
+    """
+    Keep ``entry["download_sources"]``: every site a chapter of this series
+    was downloaded from (``url``, ``provider``, ``last_chapter``,
+    ``chapters`` count, ``last_downloaded_at``), most recent first. The
+    update check always looks at these sites, so downloading a chapter
+    from a new site makes that site part of the series' checks — even
+    before the file is moved into iCloud.
+    """
+    from .chapters import chapter_float
+
+    sources = entry.setdefault("download_sources", [])
+    src = next((s for s in sources if s.get("url") == url), None)
+    if src is None:
+        src = {"url": url, "provider": provider, "last_chapter": number, "chapters": 0}
+        sources.append(src)
+    src["chapters"] = int(src.get("chapters") or 0) + 1
+    if provider:
+        src["provider"] = provider
+    if (chapter_float(number) or -1) >= (chapter_float(src.get("last_chapter") or "") or -1):
+        src["last_chapter"] = number
+    src["last_downloaded_at"] = _now_iso()
+    sources.remove(src)
+    sources.insert(0, src)  # most recently used first
+
+
 class LibraryManager:
     """Persistent library of downloaded manga."""
 
@@ -430,10 +456,14 @@ class LibraryManager:
             entry = self._data["entries"][i]
             chapters = entry.setdefault("chapters", {})
             number = str(getattr(chapter, "number", "")) or "?"
+            source = _normalize_url(getattr(manga, "source_url", "") or "")
             chapters[number] = {
                 "title": getattr(chapter, "title", "") or "",
                 "downloaded_at": _now_iso(),
+                "source": source,
             }
+            if source:
+                _remember_download_source(entry, source, getattr(manga, "source", "") or "", number)
             entry["last_updated_at"] = _now_iso()
             self._save()
 

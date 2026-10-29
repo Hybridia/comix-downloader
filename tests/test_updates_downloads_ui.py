@@ -35,6 +35,18 @@ class UpdatesAndDownloads(Smoke):
         self.assertEqual(self.find("applyCountText").property("text"), "2")
         self.eval_qml(f"updatesView.toggleChapter('{URL}', '116')")
 
+    def test_source_label_says_where_you_downloaded(self):
+        label = self.eval_qml(
+            "updatesView.sourceLabel({provider: 'manhwa18cc', latest: '322', newer: [1], "
+            "is_downloaded: true, downloaded_last: '321', is_primary: true})")
+        self.assertIn("↓ you downloaded ch 321 here", label)
+        self.assertNotIn("main site", label)
+        both = self.eval_qml(
+            "updatesView.sourceLabel({provider: 'x', latest: '9', newer: [], "
+            "is_detected: true, is_downloaded: true, downloaded_last: '9'})")
+        self.assertIn("★ your files came from here", both)
+        self.assertIn("↓ you downloaded ch 9 here", both)
+
     def test_job_card_finishes(self):
         d = self.bridges["download"]
         d.jobStarted.emit("jx", "Moby Dick", "", 2)

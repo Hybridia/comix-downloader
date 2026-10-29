@@ -623,6 +623,24 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-10-29 — remember which site chapters were downloaded from
+- `library.record_chapter` now stores the site on each chapter
+  (`chapters[n].source`) and keeps `entry["download_sources"]`: every
+  site a chapter of the series came from (`url`, `provider`,
+  `last_chapter`, `chapters`, `last_downloaded_at`), most recently used
+  first. Recorded for every download path (Browse, per-card Update,
+  Updates view, MyDex), since they all call `record_chapter`.
+- `check_entry` always probes those sites (flag `is_downloaded`,
+  `downloaded_last`), even when the enricher thought the mirror was
+  behind; on a tie in new chapters they rank with "your files came from
+  here". The Updates view labels them "↓ you downloaded ch N here".
+- Provenance also reads the CBZs waiting in the series' downloads
+  folder(s) (always local, so no iCloud downloads), so chapters fetched
+  from a new site count before they're moved into iCloud — and older
+  downloads made before this change are picked up too.
+- Why: downloading a chapter from another site for the same title used
+  to leave that site unknown until the file was in iCloud *and* local.
+
 ### 2026-10-29 — update check counts chapters waiting in ./downloads
 - Check for Updates compared a site only with the series' main folder
   (usually iCloud), so chapters already downloaded into `./downloads` but

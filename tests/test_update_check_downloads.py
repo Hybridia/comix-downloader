@@ -57,5 +57,32 @@ class ChaptersOnDiskTest(unittest.TestCase):
         self.assertEqual(seen["max"], 79.0)
 
 
+class DownloadsProvenanceTest(unittest.TestCase):
+    def test_sites_of_cbzs_waiting_in_downloads_are_detected(self):
+        root = Path(tempfile.mkdtemp())
+        icloud = root / "Manga" / "Secret Class"
+        cbz(icloud / "Chapter_321.cbz")
+        dl = root / "downloads" / "Secret Class"
+        dl.mkdir(parents=True)
+        with zipfile.ZipFile(dl / "Chapter_322.cbz", "w") as z:
+            z.writestr("ComicInfo.xml", "<ComicInfo><Web>https://manhwa18.cc/webtoon/secret-class-01</Web></ComicInfo>")
+            z.writestr("001.jpg", b"x")
+        entry = {"title": "Secret Class", "folder": "Secret Class", "download_path": str(icloud.parent),
+                 "source_url": "https://manhwabuddy.com/manhwa/secret-class"}
+        probed = []
+
+        def fake_probe(url, on_disk, on_disk_max):
+            probed.append(url)
+            return {"url": url, "provider": "x", "title": "", "latest": "322", "remote_count": 1,
+                    "newer": [], "gaps": [], "error": "", "manga": None, "status": None}
+
+        with mock.patch.object(update_check, "_probe", fake_probe), \
+             mock.patch.object(update_check, "downloads_root", return_value=root / "downloads"), \
+             mock.patch("src.utils.library.shared", return_value=mock.Mock()):
+            r = update_check.check_entry(entry)
+        self.assertEqual(probed[0], "https://manhwa18.cc/webtoon/secret-class-01")
+        self.assertIn("https://manhwa18.cc/webtoon/secret-class-01", [d["url"] for d in r["detected"]])
+
+
 if __name__ == "__main__":
     unittest.main()
