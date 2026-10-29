@@ -18,6 +18,13 @@ from .manhwa18net import Manhwa18NetProvider
 from .mangadistrict import MangadistrictProvider
 from .manga18fx import Manga18fxProvider
 from .webtoonscan import WebtoonscanProvider
+from .manhwa68 import Manhwa68Provider
+from .toongod import ToongodProvider
+from .webtoonxyz import WebtoonxyzProvider
+from .manhwa18cc import Manhwa18ccProvider
+from .manga18me import Manga18meProvider
+from .hentai20 import Hentai20Provider
+from .manhwalike import ManhwalikeProvider
 from .toomics import ToomicsProvider
 from .mangafire import MangafireProvider
 
@@ -37,6 +44,13 @@ _REGISTRY: list[Type[Provider]] = [
     MangadistrictProvider,
     Manga18fxProvider,
     WebtoonscanProvider,
+    Manhwa68Provider,
+    ToongodProvider,
+    WebtoonxyzProvider,
+    Manhwa18ccProvider,
+    Manga18meProvider,
+    Hentai20Provider,
+    ManhwalikeProvider,
     ToomicsProvider,
     MangafireProvider,
 ]

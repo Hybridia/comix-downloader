@@ -1,6 +1,8 @@
 """Task 6: animated URL input and manga card reveal."""
 import unittest
 
+from PyQt6.QtCore import QPointF
+
 from tests.qmlsmoke import Smoke
 
 MANGA = {
@@ -23,6 +25,18 @@ class BrowseTop(Smoke):
         self.find("urlField").setProperty("text", "")
         self.pump(50)
         self.assertFalse(self.find("fetchButton").property("ready"))
+
+    def test_every_site_chip_fits_inside_the_box(self):
+        # 23 sites wrap onto 3 chip rows at the minimum window width; the
+        # box must grow with them instead of clipping the last row.
+        self.root().setWidth(1100)
+        self.pump(100)
+        box = self.find("urlInput")
+        flow = self.find("siteChips")
+        bottom = flow.mapToItem(box, QPointF(0, flow.property("height"))).y()
+        self.assertGreaterEqual(flow.property("height"), 3 * 22)
+        self.assertLessEqual(bottom, box.property("height") - 8)
+        self.assert_no_qml_warnings()
 
     def test_shake_on_unknown_enter(self):
         m = self.bridges["manga"]

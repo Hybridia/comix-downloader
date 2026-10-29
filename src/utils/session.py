@@ -433,6 +433,24 @@ class SessionManager:
 
         return response
 
+    def post(self, url: str, **kwargs: Any):
+        """POST with the per-host rate limiter and the network-block latch.
+
+        No Cloudflare escalation: FlareSolverr's ``request.get`` can't
+        replay a POST. Used for Madara's ``ajax/chapters/`` endpoint.
+        """
+        host = _hostname(url)
+        if self._is_latched_blocked(host):
+            raise NetworkBlockedError(host)
+        self._rate.for_host(host).acquire()
+        kwargs.setdefault("verify", self.verify_ssl)
+        try:
+            return self._session.post(url, **kwargs)
+        except Exception as e:
+            if _looks_like_tls_block(e):
+                raise self._latch_blocked(host, e) from e
+            raise
+
     # -- internals ----------------------------------------------------
 
     def _is_human_check(self, response) -> bool:

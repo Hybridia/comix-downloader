@@ -18,7 +18,8 @@ PDF, or a CBZ. Two front-ends share the same core:
 
 NSFW-tolerant — comix.to, nhentai.to, hitomi.la, hentaifc.com,
 hentairead.com, hentaifox.com, toonily.com, manhwaread.com,
-manhwa18.com, manhwa18.net, toomics (paid VIP), and mangafire.to are
+manhwa18.com, manhwa18.net, toomics (paid VIP), mangafire.to, manhwa68.com, toongod.org,
+webtoon.xyz, manhwa18.cc, manga18.me, hentai20.io and manhwalike.com are
 all supported sources.
 
 ### Provider matrix at-a-glance
@@ -39,6 +40,13 @@ all supported sources.
 | `mangadistrict.com`     | Cloudflare only     | Madara theme; eager `src` reader imgs | Multi-chapter NSFW manhwa; same theme as webtoonscan but no FlareSolverr needed |
 | `manga18fx.com`         | none                | Madara-ish HTML; `chapter-name` anchors; `/uploads/` reader imgs | Multi-chapter NSFW manhwa; plain HTTP, no anti-bot. Unrelated to manhwa18.* |
 | `webtoonscan.com`       | Cloudflare (hard)   | **FlareSolverr required** — defeats curl_cffi AND Playwright | Multi-chapter Madara theme; aggressive bot management |
+| `manhwa68.com`          | none                | Madara; chapter list via `POST ajax/chapters/` | Multi-chapter NSFW manhwa; chapters can be cut into 100+ slices |
+| `toongod.org`           | Cloudflare (hard)   | Madara; **FlareSolverr required** | Multi-chapter NSFW manhwa; image CDN needs Referer |
+| `webtoon.xyz`           | Cloudflare (hard)   | Madara; **FlareSolverr required** (pages AND image CDN; one `cf_clearance` covers both) | Multi-chapter, mixed adult/general |
+| `manhwa18.cc`           | none                | manga18fx-style engine (`_manga18.py`) | Multi-chapter NSFW manhwa; unrelated to manhwa18.com/.net |
+| `manga18.me`            | none                | manga18fx-style engine (`_manga18.py`) | Multi-chapter NSFW manhwa |
+| `hentai20.io`           | none                | WordPress MangaReader theme | Multi-chapter adult webtoons; cover is a thumbnail only |
+| `manhwalike.com`        | none                | custom HTML; image CDN needs Referer (520 without) | Multi-chapter, mostly adult |
 | `global.toomics.com`    | **paid login**      | `secrets.json` cookie/credential  | One active session per account     |
 | `mangafire.to`          | anti-bot only       | **Playwright** (CF + VRF capture) | Heaviest provider; needs Chromium  |
 
@@ -101,6 +109,12 @@ comix/
     │   ├── mangadistrict.py      MangadistrictProvider (multi-chapter; Madara; plain HTTP, no FlareSolverr)
     │   ├── manga18fx.py          Manga18fxProvider (multi-chapter; Madara-ish; chapter-name anchors + /uploads/ imgs)
     │   ├── webtoonscan.py        WebtoonscanProvider (multi-chapter; Madara; FlareSolverr required)
+    │   ├── _madara.py            MadaraProvider base (manhwa68, toongod, webtoonxyz subclass it)
+    │   ├── _manga18.py           manga18fx-style engine base (manhwa18cc, manga18me)
+    │   ├── manhwa68.py / toongod.py / webtoonxyz.py      Madara sites (config-only subclasses)
+    │   ├── manhwa18cc.py / manga18me.py                   manga18fx-style sites
+    │   ├── hentai20.py           Hentai20Provider (MangaReader theme)
+    │   ├── manhwalike.py         ManhwalikeProvider (custom HTML)
     │   ├── toomics.py            ToomicsProvider (cookie/credential auth)
     │   └── mangafire.py          MangafireProvider (Playwright VRF + CF cookies)
     ├── core/
@@ -608,6 +622,36 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-10-28 — 7 adult manhwa providers
+- **New sites** (picked by the user from a shortlist): manhwa68.com,
+  toongod.org, webtoon.xyz, manhwa18.cc, manga18.me, hentai20.io,
+  manhwalike.com. Each verified live on two series: info, chapter list,
+  oldest + newest chapter images, page and cover fetch (HTTP 200).
+- **Shared bases instead of copy-paste.** `_madara.py` holds the whole
+  Madara flow (summary rows, `wp-manga-chapter` list, `reading-content`
+  images); the three Madara sites are config-only subclasses.
+  `_manga18.py` covers the manga18fx engine (manhwa18.cc / manga18.me
+  share manga18fx's markup and sidebar). manga18fx / mangadistrict /
+  webtoonscan were left on their own code — not worth the regression
+  risk to fold them in.
+- **`SessionManager.post()`** — rate-limited, honours the TLS-block
+  latch, no FlareSolverr (it can only replay GETs). Needed for
+  manhwa68's `POST <series>/ajax/chapters/`; its series page only
+  renders the latest few chapters.
+- **Gotchas found on the live sites:** manhwa68 series can start past
+  chapter 1 and cut chapters into 100+ slices; manga18.me uses
+  single-quoted attributes; manhwalike's image hosts answer 520 without
+  a Referer, older chapters write `<div id="page-N" class="page-chapter">`,
+  and series without a synopsis get site boilerplate in `<p class="about">`
+  (dropped); hentai20 only publishes a 193×278 cover thumbnail;
+  webtoon.xyz's image CDN is Cloudflare-challenged too, but the page
+  solve's `cf_clearance` (scoped to `.webtoon.xyz`) covers it.
+- **Hiperdex not added.** It's now a JS app whose API (`/api/trpc`)
+  requires an access token hidden in its bundle; sending it was blocked
+  as access-control circumvention, so it stays unsupported.
+- Tests: `tests/test_new_adult_providers.py` (fixtures trimmed from the
+  live markup).
 
 ### 2026-10-26 — manhwaread covers missing
 - manhwaread.com now emits a hostless `og:image`

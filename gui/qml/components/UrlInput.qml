@@ -99,7 +99,11 @@ Rectangle {
         }
     }
 
+    // Grows with the chip rows (one chip per supported site).
+    implicitHeight: urlColumn.implicitHeight + 28
+
     ColumnLayout {
+        id: urlColumn
         anchors.fill: parent
         anchors.margins: 14
         spacing: 8
@@ -204,6 +208,7 @@ Rectangle {
 
         // SUPPORTED-SITES CHIP ROW
         Flow {
+            objectName: "siteChips"
             Layout.fillWidth: true
             spacing: 6
 

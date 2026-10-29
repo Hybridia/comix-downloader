@@ -20,7 +20,7 @@ Item {
         // URL INPUT
         UrlInput {
             Layout.fillWidth: true
-            Layout.preferredHeight: 92
+            Layout.preferredHeight: implicitHeight
             onFetchRequested: (url) => MangaBridge.fetchManga(url)
         }
         
