@@ -242,8 +242,9 @@ class UpdateProbeWorker(QThread):
             entry = _library().get_entry(self.source_url) or {}
 
             on_disk_folder = self._on_disk_folder(entry)
+            from src.utils.update_check import chapters_on_disk
             on_disk_chapters = (
-                _chapter_numbers_on_disk(on_disk_folder)
+                chapters_on_disk(entry, on_disk_folder)
                 if on_disk_folder
                 else set()
             )
@@ -929,9 +930,8 @@ class LibraryBridge(QObject):
         if self._download_bridge is None:
             return 0
 
-        from src.utils.chapters import chapter_numbers_on_disk
         from src.utils.library import shared as _library
-        from src.utils.update_check import resolve_folder
+        from src.utils.update_check import chapters_on_disk, resolve_folder
 
         queued = 0
         for sel in selection or []:
@@ -946,11 +946,11 @@ class LibraryBridge(QObject):
             src = sources[idx]
             wanted = {str(n) for n in sel.get("numbers") or []}
 
-            # Re-read disk: chapters moved into iCloud since the check
-            # shouldn't be fetched again.
+            # Re-read disk: chapters moved into iCloud (or already waiting
+            # in downloads) since the check shouldn't be fetched again.
             entry = _library().get_entry(url) or {}
             folder = resolve_folder(entry)
-            have = chapter_numbers_on_disk(folder) if folder else set()
+            have = chapters_on_disk(entry, folder) if folder else set()
 
             chapters = [
                 c for c in (src.get("newer") or []) + (src.get("gaps") or [])

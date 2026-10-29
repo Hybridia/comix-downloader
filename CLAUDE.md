@@ -623,6 +623,19 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-10-29 — update check counts chapters waiting in ./downloads
+- Check for Updates compared a site only with the series' main folder
+  (usually iCloud), so chapters already downloaded into `./downloads` but
+  not yet moved into iCloud were listed as new on every check (13 of 30
+  in one run). New `update_check.chapters_on_disk(entry, folder)` adds the
+  series' downloads folder(s), matched by folder / title / alt titles /
+  each site's `title_on_site` (downloads are named after the site's
+  title) with the same strict-then-loose fuzz as the iCloud lookup. Used
+  by `check_entry`, the per-card probe and `applyUpdates`' pre-download
+  re-check. Test: `tests/test_update_check_downloads.py`.
+- MyDex (separate private repo, `~/Documents/MyDex`) imports this code;
+  its auto-import had the same blind spot and got the same fix.
+
 ### 2026-10-28 — 7 adult manhwa providers
 - **New sites** (picked by the user from a shortlist): manhwa68.com,
   toongod.org, webtoon.xyz, manhwa18.cc, manga18.me, hentai20.io,

@@ -146,6 +146,42 @@ def resolve_folder(entry: dict) -> Optional[Path]:
     return recorded
 
 
+def downloads_root() -> Path:
+    """config.json's ``download_path`` (relative paths are project-root based)."""
+    from .config import ConfigManager, _PROJECT_ROOT
+    p = Path(ConfigManager().get("download_path", "downloads") or "downloads").expanduser()
+    return p if p.is_absolute() else _PROJECT_ROOT / p
+
+
+def chapters_on_disk(entry: dict, folder: Optional[Path],
+                     downloads_root: Optional[Path] = None) -> set[str]:
+    """
+    Chapters you already have: the series' folder (usually iCloud) plus
+    this series' folder(s) in the downloads folder — chapters downloaded
+    but not yet moved into iCloud. Without the second part every check
+    re-lists those chapters as new. Downloads folders are matched by the
+    entry's folder / title / alt titles and each site's title (the
+    downloader names folders after the site's title), with the same
+    strict-then-loose fuzzy rules as the iCloud lookup. Names only —
+    nothing is opened.
+    """
+    have = chapter_numbers_on_disk(folder) if folder else set()
+    root = downloads_root if downloads_root is not None else globals()["downloads_root"]()
+    try:
+        dirs = [p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        return have
+    names = [entry.get("folder"), entry.get("title"), *(entry.get("alt_titles") or []),
+             *[a.get("title_on_site") for a in entry.get("alternative_sources") or []]]
+    keys = {f(n) for n in names if n for f in (_fuzz, _fuzz_loose)} - {""}
+    for d in dirs:
+        if folder and d.resolve() == Path(folder).resolve():
+            continue
+        if _fuzz(d.name) in keys or _fuzz_loose(d.name) in keys:
+            have |= chapter_numbers_on_disk(d)
+    return have
+
+
 def _num_key(n: str) -> float:
     v = chapter_float(n)
     return -1.0 if v is None else v
@@ -240,7 +276,7 @@ def check_entry(entry: dict, cancelled=lambda: False) -> dict:
             _library().relocate(library_url, str(folder.parent), folder.name)
         except Exception as exc:
             logger.warning("relocate failed: %s", exc)
-    on_disk = chapter_numbers_on_disk(folder) if folder else set()
+    on_disk = chapters_on_disk(entry, folder) if folder else set()
     if not on_disk:
         # Nothing on disk ⇒ not a series being followed (abandoned
         # in-app download, per-volume CBZs, …). Same rule as Update.
