@@ -57,6 +57,42 @@ class ChaptersOnDiskTest(unittest.TestCase):
         self.assertEqual(seen["max"], 79.0)
 
 
+class OtherSeriesFoldersTest(unittest.TestCase):
+    """A downloads folder named after another series you have belongs to
+    that series — not to one that merely lists its name as an alt title."""
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp())
+        self.downloads = root / "downloads"
+        cbz(self.downloads / "Study Buddies" / "Chapter_117.cbz")
+        cbz(self.downloads / "College Grades Skyrocketing _Uncensored_" / "Chapter_65.cbz")
+        cbz(self.downloads / "Secret Class" / "Chapter_322.cbz")
+        self.entries = [
+            {"source_url": "https://a/college", "title": "College Grades Skyrocketing (Uncensored)",
+             "folder": "College Grades Skyrocketing _Uncensored_", "alt_titles": ["Study Buddies"]},
+            {"source_url": "https://a/study", "title": "Study Buddies", "folder": "Study Buddies"},
+            {"source_url": "https://a/life", "title": "Secret Life", "folder": "Secret Life",
+             "alternative_sources": [{"title_on_site": "Secret Class"}]},
+            {"source_url": "https://a/class", "title": "Secret Class", "folder": "Secret Class"},
+            {"source_url": "https://a/class-top", "title": "Secret Class TOP", "folder": "Secret Class TOP"},
+        ]
+
+    def names(self, i):
+        return sorted(d.name for d in update_check.downloads_folders(
+            self.entries[i], None, downloads_root=self.downloads, entries=self.entries))
+
+    def test_alt_title_does_not_claim_another_series_folder(self):
+        self.assertEqual(self.names(0), ["College Grades Skyrocketing _Uncensored_"])
+        self.assertEqual(self.names(1), ["Study Buddies"])
+
+    def test_other_site_title_does_not_claim_another_series_folder(self):
+        self.assertEqual(self.names(2), [])
+        self.assertEqual(self.names(3), ["Secret Class"])
+
+    def test_duplicate_entries_of_one_series_share_its_folder(self):
+        self.assertEqual(self.names(4), ["Secret Class"])  # "Secret Class TOP" ≈ "Secret Class"
+
+
 class DownloadsProvenanceTest(unittest.TestCase):
     def test_sites_of_cbzs_waiting_in_downloads_are_detected(self):
         root = Path(tempfile.mkdtemp())

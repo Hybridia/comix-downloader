@@ -17,7 +17,7 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtQml import QQmlApplicationEngine
 from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
 
-from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge, LibraryBridge
+from gui.bridge import MangaBridge, DownloadBridge, SettingsBridge, LibraryBridge, IcloudBridge
 
 QML_DIR = Path(__file__).parent / "qml"
 # Built by scripts/make_app_icon.py from gui/resources/icon-source.png
@@ -58,6 +58,7 @@ def build_engine(
         "download": DownloadBridge(),
         "settings": SettingsBridge(),
         "library": LibraryBridge(),
+        "icloud": IcloudBridge(),
     }
     # The Library "Update" flow needs to invoke DownloadBridge once it
     # has diffed local vs remote chapters; wire that connection up here
@@ -69,6 +70,7 @@ def build_engine(
     ctx.setContextProperty("DownloadBridge", bridges["download"])
     ctx.setContextProperty("SettingsBridge", bridges["settings"])
     ctx.setContextProperty("LibraryBridge", bridges["library"])
+    ctx.setContextProperty("IcloudBridge", bridges["icloud"])
     # Theme.software reads this: blur / masks / shader effects are skipped.
     ctx.setContextProperty("SoftwareRendering", software_rendering())
 

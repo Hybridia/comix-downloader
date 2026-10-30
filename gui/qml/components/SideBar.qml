@@ -11,9 +11,12 @@ Rectangle {
     signal downloadsClicked()
     signal libraryClicked()
     signal updatesClicked()
+    signal icloudClicked()
     signal settingsClicked()
 
-    property int activeTab: 0 // 0: Browse, 1: Downloads, 2: Library, 3: Updates
+    property int activeTab: 0 // 0: Browse, 1: Downloads, 2: Library, 3: Updates, 4: To iCloud
+    // Chapters in ./downloads not yet in iCloud (To iCloud badge).
+    property int icloudCount: 0
     // Series waiting for approval in the Updates view (badge).
     property int updatesCount: 0
     // Chapters still queued or downloading (Downloads badge).
@@ -130,6 +133,14 @@ Rectangle {
                     badge: root.updatesCount
                     isActive: root.activeTab === 3
                     onClicked: { root.activeTab = 3; root.updatesClicked() }
+                }
+
+                NavButton {
+                    icon: "☁️"
+                    label: "To iCloud"
+                    badge: root.icloudCount
+                    isActive: root.activeTab === 4
+                    onClicked: { root.activeTab = 4; root.icloudClicked() }
                 }
             }
         }

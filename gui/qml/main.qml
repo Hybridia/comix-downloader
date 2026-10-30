@@ -55,6 +55,7 @@ ApplicationWindow {
                 onDownloadsClicked: viewStack.currentIndex = 1
                 onLibraryClicked: { viewStack.currentIndex = 2; libraryView.refresh(true) }
                 onUpdatesClicked: { viewStack.currentIndex = 3; updatesView.refresh() }
+                onIcloudClicked: { viewStack.currentIndex = 4; icloudView.refresh() }
                 onSettingsClicked: settingsDrawer.isOpen = true
             }
         
@@ -122,6 +123,15 @@ ApplicationWindow {
                         index: 3; currentIndex: viewStack.currentIndex
                         UpdatesView {
                             id: updatesView
+                            anchors.fill: parent
+                        }
+                    }
+
+                    ViewPane {
+                        anchors.fill: parent
+                        index: 4; currentIndex: viewStack.currentIndex
+                        IcloudView {
+                            id: icloudView
                             anchors.fill: parent
                         }
                     }
@@ -222,6 +232,17 @@ ApplicationWindow {
         }
     }
     Connections {
+        target: IcloudBridge
+        function onPendingReady(rows) {
+            var n = 0
+            for (var i = 0; i < rows.length; i++) n += rows[i].chapters.length
+            sideBar.icloudCount = n
+        }
+        function onCopyFinished(result) { Fx.toast(result.message, result.failed > 0 ? "error" : "ok") }
+    }
+    // Count what's waiting for iCloud shortly after start (names only — cheap).
+    Timer { interval: 1500; running: true; onTriggered: IcloudBridge.scan() }
+    Connections {
         target: MangaBridge
         function onMangaLoaded(info) { browseView.getMangaCard().manga = info }
         function onChaptersLoaded(chapters) { browseView.getChapterList().setChapters(chapters) }
@@ -257,6 +278,7 @@ ApplicationWindow {
             downloadsView.getProgressPanel().routeChapterComplete(jobId, name, success, message)
         }
         function onDownloadFinished(jobId, successful, failed) {
+            IcloudBridge.scan()
             root._badge(Badge.jobEnded(root.dlBadge, jobId))
             var title = root.jobTitles[jobId] || "this series"
             delete root.jobTitles[jobId]

@@ -623,6 +623,54 @@ back to debug.
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
 
+### 2026-10-30 — Copy to iCloud (sidebar ☁️ "To iCloud")
+- New view lists chapters in the download folder that aren't in the
+  series' iCloud Manga folder yet (one row per iCloud folder, so duplicate
+  Library entries collapse) with series checkboxes, chapter chips, Select
+  all, and "Copy N chapters to iCloud". Sidebar badge = chapters waiting;
+  rescans at start-up and after every download.
+- **Copies, never moves** (user's choice) — the downloads file stays and
+  can be cleaned up later. A series without an iCloud folder gets a new
+  one named like its downloads folder (user's choice).
+- Logic in `src/utils/icloud_push.py` (`copy_chapters`,
+  `pending_for_entry`), shared with MyDex. Safety: writes only into a
+  direct, non-hidden subfolder of the iCloud Manga folder (never
+  `.reader_state.json`), never overwrites (same chapter number in any
+  notation or same file name → skipped), copies to `.<name>.partial`
+  then renames so iCloud / Comix Reader never see half a CBZ, and only
+  file *names* are read in iCloud. Bridge: `gui/bridge/icloud_bridge.py`
+  (QThread scan + copy). This is the first code path that writes into
+  iCloud — only on an explicit click; automatic downloads still go to
+  `download_path`.
+- **Fixed: a downloads folder could be claimed by the wrong series.**
+  `downloads_folders` matched alt titles and other sites' titles, so
+  "College Grades Skyrocketing" (alt title "Study Buddies") counted the
+  Study Buddies downloads, and Secret Life (a wrong "also on" match
+  titled "Secret Class") counted Secret Class's. Now a folder named after
+  *another* Library series' own title/folder belongs to that series.
+  This also fixes the update check (College Grades' max on-disk chapter
+  read as 117, turning its real new chapters into "gaps").
+- **Waits for the iCloud upload.** Copying into the iCloud folder is done
+  in seconds, but macOS uploads afterwards. `src/utils/icloud_status.py`
+  asks macOS per file (`URLResourceValues` isUploaded / isUploading /
+  uploadingError, via `icloud_status.swift` compiled on first use into
+  `~/Library/Caches/comix-downloader/`; metadata only). After copying,
+  the view shows a progress bar: copying N of M, then "uploaded N of M"
+  until every copy is uploaded. An upload *error* is not final: on the
+  first real run every copy briefly reported "Couldn't access your iCloud
+  account" while `brctl status` showed them "needs-upload, active" — all
+  were uploaded minutes later. So errors read as "iCloud retrying" and
+  the wait continues; only after 2 h is one short reason reported.
+  The error flag also *stays set while the retry is uploading*, so the
+  helper ranks uploaded > uploading > error. Byte progress comes from the
+  per-file `NSProgress` Finder shows (`Progress.addSubscriber(forFileURL:)`,
+  ~0.8 s per poll): "22.5 MB of 228.7 MB", and each chapter's percentage. MyDex only calls a downloads copy "safe to remove" once its
+  iCloud twin is uploaded — re-checked right before removing.
+- `_fuzz_loose` also ignores "MOTION" and treats `_` as a space
+  ("[MOTION] X (Uncensored)" ↔ iCloud folder "X _Uncensored_").
+- Tests: `tests/test_icloud_push.py`, `tests/test_icloud_view.py`,
+  `tests/test_fuzz_tags.py`, `OtherSeriesFoldersTest`.
+
 ### 2026-10-29 — remember which site chapters were downloaded from
 - `library.record_chapter` now stores the site on each chapter
   (`chapters[n].source`) and keeps `entry["download_sources"]`: every

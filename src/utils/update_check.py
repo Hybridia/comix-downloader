@@ -100,13 +100,14 @@ def _fuzz(s: str) -> str:
 
 def _fuzz_loose(s: str) -> str:
     """Also drop TOP / END / Uncensored / … tokens ("Secret Class TOP"
-    vs the iCloud folder "Secret Class")."""
-    s = re.sub(r"\b(top|end|uncensored|decensored|raw|hot|complete)\b", "",
-               (s or "").lower())
+    vs the iCloud folder "Secret Class"; "[MOTION] X" vs "X"). Underscores
+    count as spaces: safe folder names turn "(Uncensored)" into "_Uncensored_"."""
+    s = re.sub(r"\b(top|end|uncensored|decensored|raw|hot|complete|motion)\b", "",
+               (s or "").lower().replace("_", " "))
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
-def _icloud_folder_for(entry: dict) -> Optional[Path]:
+def _icloud_folder_for(entry: dict, root: Optional[Path] = None) -> Optional[Path]:
     """
     The user's iCloud Manga subfolder for this entry, by fuzzy match on
     folder name then title (strict, then suffix-stripped). Same rules as
@@ -114,7 +115,7 @@ def _icloud_folder_for(entry: dict) -> Optional[Path]:
     only subfolders, so ``Manga/.reader_state.json`` is never touched.
     """
     try:
-        dirs = [p for p in ICLOUD_ROOT.iterdir()
+        dirs = [p for p in (root or ICLOUD_ROOT).iterdir()
                 if p.is_dir() and not p.name.startswith(".")]
     except OSError:
         return None
@@ -171,9 +172,22 @@ def chapters_on_disk(entry: dict, folder: Optional[Path],
     return have
 
 
+def _own_keys(entry: dict) -> set[str]:
+    """Fuzzy keys of the series' own names (folder + title, not alt titles)."""
+    return {f(n) for n in (entry.get("folder"), entry.get("title")) if n for f in (_fuzz, _fuzz_loose)} - {""}
+
+
 def downloads_folders(entry: dict, folder: Optional[Path],
-                      downloads_root: Optional[Path] = None) -> list[Path]:
-    """This series' folder(s) in the downloads folder (not ``folder`` itself)."""
+                      downloads_root: Optional[Path] = None,
+                      entries: Optional[list[dict]] = None) -> list[Path]:
+    """This series' folder(s) in the downloads folder (not ``folder`` itself).
+
+    A folder can match through an alt title or another site's title, but a
+    folder named after *another* series in the Library (its own title or
+    folder) belongs to that series: "College Grades Skyrocketing" lists
+    "Study Buddies" as an alt title, and a wrong "also on" match calls
+    Secret Life "Secret Class". ``entries`` = the Library (loaded when None).
+    """
     root = downloads_root if downloads_root is not None else globals()["downloads_root"]()
     try:
         dirs = [p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")]
@@ -182,12 +196,28 @@ def downloads_folders(entry: dict, folder: Optional[Path],
     names = [entry.get("folder"), entry.get("title"), *(entry.get("alt_titles") or []),
              *[a.get("title_on_site") for a in entry.get("alternative_sources") or []]]
     keys = {f(n) for n in names if n for f in (_fuzz, _fuzz_loose)} - {""}
+    own = _own_keys(entry)
+    if entries is None:
+        try:
+            from .library import shared
+            entries = list(shared().list_entries())
+        except Exception:
+            entries = []
+    me = (entry.get("source_url") or "").rstrip("/").lower()
+    others: set[str] = set()
+    for e in entries:
+        if (e.get("source_url") or "").rstrip("/").lower() != me:
+            others |= _own_keys(e)
     out = []
     for d in dirs:
         if folder and d.resolve() == Path(folder).resolve():
             continue
-        if _fuzz(d.name) in keys or _fuzz_loose(d.name) in keys:
-            out.append(d)
+        k = {_fuzz(d.name), _fuzz_loose(d.name)}
+        if not k & keys:
+            continue
+        if not k & own and k & others:
+            continue  # another series' own folder
+        out.append(d)
     return out
 
 
