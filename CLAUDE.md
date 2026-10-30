@@ -577,6 +577,11 @@ Defaults live in `ConfigManager.DEFAULT_CONFIG`. Notable keys:
 
 ## How to run
 
+**Double-click:** `/Applications/Comix Downloader.app` (built by
+`python scripts/make_mac_app.py`; a thin launcher for this checkout's
+`.venv` + `gui/main.py`, log in `~/Library/Logs/ComixDownloader.log` —
+rebuild only if the folder moves). MyDex has the same in its repo.
+
 ```bash
 pip install -r requirements.txt           # one-time
 python -m playwright install chromium     # mangafire only — ~150 MB into .venv
@@ -622,6 +627,12 @@ back to debug.
 
 Newest first. Bullet what changed and *why* (the why ages better than
 the what).
+
+### 2026-10-30 — double-click app
+- `scripts/make_mac_app.py` builds `/Applications/Comix Downloader.app`
+  (chibi icon, Info.plist, a bash launcher that `exec`s the venv Python
+  on `gui/main.py`, so the app *is* the GUI process). The user asked to
+  stop needing terminal commands. Test: `tests/test_mac_app.py`.
 
 ### 2026-10-30 — Copy to iCloud (sidebar ☁️ "To iCloud")
 - New view lists chapters in the download folder that aren't in the
