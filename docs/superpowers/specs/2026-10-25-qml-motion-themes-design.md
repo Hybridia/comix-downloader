@@ -1,7 +1,7 @@
 # Qt GUI — themes + motion redesign
 
 Date: 2026-10-25
-Status: approved direction (mockups), awaiting sign-off on this document
+Status: approved and built (2026-10-25) — see the CLAUDE.md changelog entry "GUI themes + motion". Later additions to the GUI (Updates review, To iCloud view, app icon) follow the same Style/Theme rules.
 
 ## Intent
 

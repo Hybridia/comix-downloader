@@ -65,11 +65,12 @@ comix/
 │   ├── app.py                    build_engine(): bridges + context props + main.qml (shared by main.py and tests); apply_app_icon()
 │   ├── resources/                icon-source.png (chibi art) → icon.png + AppIcon.icns via scripts/make_app_icon.py
 │   ├── bridge/                   Python ↔ QML bridges
+│   │   ├── icloud_bridge.py      "To iCloud" view: scan downloads vs iCloud, copy + watch the upload
 │   │   ├── manga_bridge.py       Fetches manga info via the provider router
 │   │   ├── download_bridge.py    Drives concurrent chapter downloads + per-run failure log + library recording
 │   │   ├── library_bridge.py     Library tab: list / update / remove / open folder + Check for Updates (review queue)
 │   │   └── settings_bridge.py    Exposes ConfigManager + toomics auth to QML
-│   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, UpdatesView, …)
+│   └── qml/                      Views + components (SettingsDrawer, ProgressPanel, LibraryView, UpdatesView, IcloudView, …)
 │       ├── Style/                QML module: Theme (live palette + motion) and Fx (effect bus) singletons, palettes.js
 │       ├── fx/                   Reusable effects: FxButton, Ripple, ToastHost, ParticleBurst, Skeleton, CountUpText,
 │       │                         PulseRings, AmbientGlow, ViewPane, ThemeWipe, FormatSelector, Spinner
@@ -81,6 +82,8 @@ comix/
 │   ├── comix_test.py             End-to-end probe for the comix provider (fast + Playwright paths)
 │   ├── webtoonscan_test.py       End-to-end probe for webtoonscan (verifies FlareSolverr)
 │   ├── start_flaresolverr.sh     Start the local FlareSolverr (manhwaread / webtoonscan CF human checks)
+│   ├── make_mac_app.py           Build /Applications/Comix Downloader.app (double-click launcher)
+│   ├── make_app_icon.py          Chibi source art → icon.png + AppIcon.icns
 │   ├── repack_to_cbz.py          Pack image folders into CBZs (Library tab's Convert button)
 │   ├── icloud_inventory.py       Read-only walk of iCloud Manga folder → icloud_inventory.json
 │   ├── icloud_match.py           Fuzzy cross-site search per inventory entry (Madara AJAX + comix API + HTML)
@@ -136,6 +139,9 @@ comix/
         ├── chapters.py           Chapter-number parsing / normalisation from CBZ filenames (shared)
         ├── provenance.py         Which site did these CBZs come from? (ComicInfo <Web>, local files only)
         ├── update_check.py       Probe-only update check for one library entry (no downloads)
+        ├── icloud_push.py        Copy to iCloud: chapters in downloads not yet in the series' iCloud folder + the copy
+        ├── icloud_status.py      Is a file uploaded to iCloud yet? (+ icloud_status.swift helper, byte progress)
+        ├── flaresolverr_launcher.py  Starts a local FlareSolverr on the first Cloudflare human check
         ├── session.py            HTTP client: curl_cffi + rate limiter + FlareSolverr
         ├── retry.py              Generic retry-with-backoff decorator
         ├── hash.py               comix.to API request signing (HaruNeko port; fast path only)
@@ -210,7 +216,10 @@ process-wide `RLock`. Shape (per entry):
   "output_format": "cbz", "download_path": "downloads",
   "folder": "<safe_title>",
   "added_at": "...", "last_updated_at": "...", "last_checked_at": null,
-  "chapters": { "1": { "title": "...", "downloaded_at": "..." }, ... }
+  "chapters": { "1": { "title": "...", "downloaded_at": "...", "source": "<site url>" }, ... },
+  "alternative_sources": [ {provider, url, title_on_site, status, chapter_count, ...} ],
+  "detected_sources":    [ sites read from the CBZs' ComicInfo <Web> ],
+  "download_sources":    [ {url, provider, last_chapter, chapters, last_downloaded_at} ]  // newest first
 }
 ```
 
@@ -275,12 +284,14 @@ collection in `~/Library/Mobile Documents/com~apple~CloudDocs/Manga/`
 (Apple iCloud Drive) can have the Library tab automatically reflect
 that collection, with multi-site URL tracking and status badges.
 
-The iCloud folder is **read-only** as far as our code goes — every
+The iCloud folder is **read-only** for everything automatic — every
 script in this pipeline reads from iCloud and writes only to
 `library.json` and the project's own report files. Phase 4 (chapter
 updates from sites) writes to `config.download_path` (typically
-`./downloads/`), not iCloud — the user moves new chapters into
-iCloud manually when they want to.
+`./downloads/`), not iCloud. The **one** exception is the user clicking
+**Copy to iCloud** (2026-10-30, `src/utils/icloud_push.py`): it copies
+chosen chapters into the series' iCloud folder — never moves, never
+overwrites, never touches `Manga/.reader_state.json`.
 
 Pipeline:
 

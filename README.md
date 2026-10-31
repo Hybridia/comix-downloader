@@ -32,9 +32,18 @@
 | `hentairead.com` | none | preview-thumb → full-image host swap |
 | `hentaifox.com` | none | hidden form fields + `g_th` JSON |
 | `toonily.com` | Cloudflare only | multi-chapter manhwa via curl_cffi |
-| `manhwaread.com` | none | mangomic theme + base64 chapterData |
+| `manhwaread.com` | Cloudflare (hard) | mangomic theme + base64 chapterData; **needs FlareSolverr** (started automatically when installed) |
 | `manhwabuddy.com` | Cloudflare only | plain HTML, `data-src` reader images (simplest provider) |
 | `manhwa18.com` | Cloudflare only | plain HTML, rotating CDN host per chapter age |
+| `manhwa18.net` | none | Inertia.js SPA — props embedded as JSON |
+| `manga18fx.com` | none | Madara-ish HTML, plain HTTP |
+| `manhwa68.com` | none | Madara; chapter list via `POST ajax/chapters/` |
+| `toongod.org` | Cloudflare (hard) | Madara; **needs FlareSolverr** |
+| `webtoon.xyz` | Cloudflare (hard) | Madara; **needs FlareSolverr** (pages and image CDN) |
+| `manhwa18.cc` | none | manga18fx-style engine |
+| `manga18.me` | none | manga18fx-style engine |
+| `hentai20.io` | none | WordPress MangaReader theme |
+| `manhwalike.com` | none | custom HTML; image CDN needs a Referer |
 | `mangadistrict.com` | Cloudflare only | Madara theme, plain HTTP (no FlareSolverr needed) |
 | `webtoonscan.com` | Cloudflare (hard) | **requires FlareSolverr running** — aggressive bot management |
 | `global.toomics.com` | **paid login** | email+password (or cookie paste) → `secrets.json` |
@@ -52,7 +61,11 @@
 | 📁 **Multiple formats** | Export as **Images**, **PDF**, or **CBZ** (with ComicInfo.xml) |
 | 🎯 **Smart selection** | Single chapter, range (`1-10`), or all |
 | 🎨 **Scanlator filter** | Filter and prefer specific scanlation groups |
-| 📚 **Persistent library** | `library.json` tracks every download; one-click "Update" diffs against the source |
+| 📚 **Persistent library** | `library.json` tracks every download, which site each chapter came from, and other sites that carry the series |
+| 🔔 **Updates, reviewed** | "Check for Updates" lists new chapters per series (site picker, chapter chips, gaps) — nothing downloads until you approve |
+| ☁️ **Copy to iCloud** | Copy chapters from the download folder into each series' iCloud Manga folder (macOS), then watch the upload finish |
+| 🎨 **Themes + motion** | Three live themes (Ink & Sakura, Neon Tokyo, Ember) with animations — or turn animations off |
+| 🖱️ **Double-click app** | `scripts/make_mac_app.py` builds `Comix Downloader.app` (macOS) |
 | 🪟 **Multi-job UI** | Download several mangas at once — each gets its own card with cover, progress, and active chapter rows |
 | 🔁 **Resume / skip** | Whole-chapter skip when artifact exists; per-image resume mid-chapter |
 | 📝 **Per-run failure log** | Failed chapters listed in `<download>/<title>/_failed.txt` for easy retry |
@@ -62,10 +75,12 @@
 
 ## 🆕 What's new in this fork
 
-- **11 additional providers** beyond the original three (`comix.to`, `nhentai.to`, `hitomi.la`):
+- **20 additional providers** beyond the original three (`comix.to`, `nhentai.to`, `hitomi.la`):
   `hentaifc.com`, `hentairead.com`, `hentaifox.com`, `toonily.com`, `manhwaread.com`,
-  `manhwabuddy.com`, `manhwa18.com`, `mangadistrict.com`, `webtoonscan.com`,
-  `global.toomics.com` (paid), `mangafire.to`.
+  `manhwabuddy.com`, `manhwa18.com`, `manhwa18.net`, `mangadistrict.com`, `manga18fx.com`,
+  `webtoonscan.com`, `manhwa68.com`, `toongod.org`, `webtoon.xyz`, `manhwa18.cc`,
+  `manga18.me`, `hentai20.io`, `manhwalike.com`, `global.toomics.com` (paid), `mangafire.to`.
+  Madara and manga18fx-style sites share base classes (`_madara.py`, `_manga18.py`).
 - **Comix.to anti-scraper resilience.** comix.to rebuilt as an SPA on `/api/v1`
   with VMProtect-style obfuscated request signing AND encrypted response bodies.
   Direct HTTP signing (port of [HaruNeko](https://github.com/manga-download/haruneko)'s
@@ -82,12 +97,25 @@
   Hiatus — auto-detected from the source where supported, manually
   marked otherwise), and search / sort / filter chips (Hide
   completed, Only completed, Hide hentai).
-- **Update + Check Status** as two separate buttons. "Update All"
-  probes + downloads new chapters; "Check Status All" is a
-  lightweight pass that only refreshes badges, never downloads —
-  fixes the foot-gun where clicking the obvious refresh button
-  silently pulled chapters you didn't want. Completed entries are
-  auto-skipped by Update All.
+- **Check for Updates → review → download.** The Updates view (🔔) lists
+  every ongoing series with new chapters; you pick the site (★ = your
+  files came from here, ↓ = you downloaded from here) and the chapters,
+  and nothing downloads until you approve. Per-card "Check for new" does
+  the same for one series. Completed series are skipped. "Check Status"
+  only refreshes badges.
+- **Knows where your chapters came from.** Reads the series URL inside
+  each CBZ (`ComicInfo.xml`), remembers the site of every chapter you
+  download, and always checks those sites. Chapters waiting in the
+  download folder count as already downloaded.
+- **Copy to iCloud** (☁️ sidebar, macOS). Chapters in the download folder
+  that aren't in the series' iCloud Manga folder yet: pick series or
+  single chapters and copy them (never overwrites; a new folder for a
+  new series), then a progress bar follows macOS's upload to iCloud.
+- **Themes + motion.** Three live themes with a colour-wipe switch and
+  animations throughout; Settings → Animations off makes everything
+  instant.
+- **Cloudflare human checks** fail fast with a clear message, and a local
+  FlareSolverr install is started automatically when a site needs it.
 - **Multi-site alternative sources** per library entry. The card
   shows an "Also on:" row of clickable provider chips (sorted by
   chapter count) when the same series is found on multiple sites.
@@ -184,6 +212,15 @@ pass. To enable as a safety net:
 
 ### GUI mode (recommended)
 
+On macOS, build a double-clickable app once and open it from
+Applications / Launchpad / Spotlight from then on:
+
+```bash
+python scripts/make_mac_app.py        # → /Applications/Comix Downloader.app
+```
+
+Or run it directly:
+
 ```bash
 python gui/main.py            # GPU rendering (default)
 python gui/main.py --cpu      # software rendering for compatibility
@@ -193,10 +230,13 @@ python gui/main.py --cpu      # software rendering for compatibility
 2. Click **FETCH** to load info and chapters.
 3. Select chapters; choose a scanlator preference for multi-group series.
 4. Click **DOWNLOAD CHAPTERS**. Switch to the Downloads tab to monitor.
-5. Open the **📚 Library** tab to see everything you've downloaded; the
-   per-card **Update** button checks for new chapters at the source.
-6. Open **⚙️ Settings** for output format, paths, workers, and toomics
-   login.
+5. Open the **📚 Library** tab to see everything you've downloaded;
+   **Check for Updates** (or a card's **Check for new**) finds new
+   chapters, which you review and approve in **🔔 Updates**.
+6. **☁️ To iCloud** (macOS) copies finished chapters into your iCloud
+   Manga folder and shows the upload progress.
+7. Open **⚙️ Settings** for output format, paths, workers, themes,
+   animations and toomics login.
 
 ### CLI mode
 
@@ -257,7 +297,10 @@ python scripts/toomics_test.py [<toomics URL or numeric id>]
 | `requests_per_second_per_host` | Rate limit start | `4.0` |
 | `min_requests_per_second` | Rate limit floor | `0.5` |
 | `max_requests_per_second` | Rate limit ceiling | `8.0` |
-| `flaresolverr_url` | Optional fallback service URL | unset |
+| `flaresolverr_url` | FlareSolverr service URL | `http://localhost:8191/v1` |
+| `flaresolverr_autostart` | Start a local FlareSolverr install when a site needs it | `true` |
+| `theme` | `ink` (Ink & Sakura) / `neon` (Neon Tokyo) / `ember` | `ink` |
+| `animations_enabled` | GUI animations | `true` |
 | `verify_ssl` | Verify TLS certs (set `false` only if local CA store is broken) | `true` |
 
 ---
@@ -272,16 +315,21 @@ comix-downloader/
 ├── library.json                  Persistent download library (gitignored)
 ├── gui/
 │   ├── main.py                   GUI entry point
-│   ├── bridge/                   Python ↔ QML bridges (download, library, manga, settings)
-│   └── qml/                      Views + components (multi-job ProgressPanel, LibraryView, …)
-├── scripts/                      Diagnostic scripts (per-provider tests) + iCloud → Library pipeline (icloud_*.py, refresh_icloud.py, library_dedupe.py, library_relocate_to_icloud.py, missing_chapters.py)
+│   ├── app.py                    Engine setup shared by main.py and the tests
+│   ├── bridge/                   Python ↔ QML bridges (download, library, manga, settings, icloud)
+│   └── qml/                      Views (Browse, Downloads, Library, Updates, To iCloud), components,
+│                                 Style (themes), fx (motion), logic (unit-tested JS)
+├── scripts/                      Diagnostic scripts (per-provider tests), iCloud → Library pipeline (icloud_*.py,
+│                                 refresh_icloud.py, …), make_mac_app.py, start_flaresolverr.sh
+├── tests/                        unittest suite (logic, providers, headless GUI)
 └── src/
     ├── api/comix.py              comix.to low-level API + Playwright fallback router
     ├── providers/                Per-site providers (uniform Provider ABC)
     ├── core/                     Models, downloader, failure log
     ├── formats/                  images / cbz / pdf
     ├── cli/                      Typer + Rich CLI
-    └── utils/                    config, secrets, library, session, hash, comix_capture, mangafire_vrf, …
+    └── utils/                    config, secrets, library, session, update_check, provenance,
+                                  icloud_push / icloud_status (Copy to iCloud), mangafire_vrf, …
 ```
 
 For the deep architectural notes, conventions, gotchas, and a per-feature

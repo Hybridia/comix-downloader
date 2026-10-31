@@ -1,5 +1,7 @@
 # Qt GUI Themes + Motion Implementation Plan
 
+> **Status (2026-10-31): done.** All 10 tasks shipped 2026-10-25 (commits `7c90881` … `0eaa1c7`, app icon `b146dd4`); see the CLAUDE.md changelog entry "GUI themes + motion". Kept as the record of how it was built.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the existing PyQt6/QML GUI three live-switchable themes and every animation from the approved mockups, without changing app behaviour.
@@ -70,7 +72,7 @@
   - `badge.js` (immutable reducer over `{jobs: {jobId: remaining}}`): `empty()`, `jobStarted(s, jobId, total)`, `chapterDone(s, jobId)`, `jobEnded(s, jobId)` (finished/cancelled/error all remove the job), `count(s) -> int` (sum, never < 0).
   - `palettes.js`: `THEMES = ["ink","neon","ember"]`; `palette(name) -> {bg,surface,card,elevated,border,accent,accent2,highlight,cool,textPrimary,textSecondary,textTertiary}`; unknown name → ink.
 
-- [ ] **Step 1: Write failing tests** in `tests/test_logic.py`:
+- [x] **Step 1: Write failing tests** in `tests/test_logic.py`:
 
 ```python
 class Motion(unittest.TestCase):
@@ -116,10 +118,10 @@ class Palettes(unittest.TestCase):
         self.assertEqual(p.call("palette", "bogus"), p.call("palette", "ink"))
 ```
 
-- [ ] **Step 2: Run** the test command. Expected: FAIL (modules missing).
-- [ ] **Step 3: Implement** `tests/qmljs.py` and the four JS files per the Interfaces block (all palette values from Global Constraints). JS files start with `.pragma library` so QML can import them.
-- [ ] **Step 4: Run** the test command. Expected: all PASS.
-- [ ] **Step 5: Commit** `test: add QJSEngine harness and pure UI logic libraries`.
+- [x] **Step 2: Run** the test command. Expected: FAIL (modules missing).
+- [x] **Step 3: Implement** `tests/qmljs.py` and the four JS files per the Interfaces block (all palette values from Global Constraints). JS files start with `.pragma library` so QML can import them.
+- [x] **Step 4: Run** the test command. Expected: all PASS.
+- [x] **Step 5: Commit** `test: add QJSEngine harness and pure UI logic libraries`.
 
 ---
 
@@ -140,7 +142,7 @@ class Palettes(unittest.TestCase):
   - `tests.qmlsmoke.Smoke`: `setUpClass` creates one `QApplication` (offscreen) and `build_engine()` against a temp copy of `config.json` (set `ConfigManager` path via env or monkeypatch — tests must never write the real `config.json`); collects `engine.warnings`; helpers `root()`, `find(objectName)`, `pump(ms)`, `assert_no_qml_warnings()`.
 - Colour rebinding map (keep each file's local property names; only the value changes): `bgDeep→Theme.bg`, `bgSurface→Theme.surface`, `bgCard→Theme.card`, `bgElevated→Theme.elevated`, `borderColor→Theme.border`, `accentPrimary→Theme.accent`, `accentGradientEnd→Theme.accent2`, `accentHighlight→Theme.highlight`, `accentSecondary→Theme.cool`, `textPrimary/Secondary/Tertiary→Theme.textPrimary/…`, `success/okColor/activeColor(green)→Theme.success`, `error/danger→Theme.error`, `warning→Theme.warning`, `info/activeColor(blue)→Theme.info`. `readonly` stays; hard-coded hex colours elsewhere in those files that equal a palette colour are rebound too.
 
-- [ ] **Step 1: Write failing tests** in `tests/test_theme.py`:
+- [x] **Step 1: Write failing tests** in `tests/test_theme.py`:
 
 ```python
 class ThemeTests(Smoke):
@@ -168,10 +170,10 @@ class SoftwareBackend(Smoke):
 
 (`eval_qml(expr)` evaluates in the root context via a `QQmlExpression`; `scan_hardcoded_colour_props` is a small regex helper in `tests/qmlsmoke.py` returning `file:line` for `readonly property color X: "#…"` outside `gui/qml/Style/`.)
 
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** `build_engine`, config defaults, `SettingsBridge` properties, `Style` module, and the rebinding across all QML files. Add `import Style` to each file.
-- [ ] **Step 4: Run** the test command. Expected: PASS. Also run `python gui/main.py` briefly and confirm it opens in Ink & Sakura.
-- [ ] **Step 5: Commit** `feat(gui): live theme system (Ink & Sakura, Neon Tokyo, Ember)`.
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** `build_engine`, config defaults, `SettingsBridge` properties, `Style` module, and the rebinding across all QML files. Add `import Style` to each file.
+- [x] **Step 4: Run** the test command. Expected: PASS. Also run `python gui/main.py` briefly and confirm it opens in Ink & Sakura.
+- [x] **Step 5: Commit** `feat(gui): live theme system (Ink & Sakura, Neon Tokyo, Ember)`.
 
 ---
 
@@ -193,7 +195,7 @@ class SoftwareBackend(Smoke):
   - `PulseRings { color }` — two rings scaling 1→2.4 and fading, staggered 1 s, infinite while `running`.
   - `AmbientGlow` — 3 large blurred accent/cool/accent2 circles drifting slowly (22–34 s cycles); visible only when `Theme.ambient && Theme.animations && !Theme.software`; uses `MultiEffect` blur.
 
-- [ ] **Step 1: Write failing tests** in `tests/test_fx.py` (loads `tests/qml/FxGallery.qml`, which instantiates each component with an `objectName`):
+- [x] **Step 1: Write failing tests** in `tests/test_fx.py` (loads `tests/qml/FxGallery.qml`, which instantiates each component with an `objectName`):
 
 ```python
 def test_gallery_instantiates_clean(self): self.assert_no_qml_warnings()
@@ -211,10 +213,10 @@ def test_animations_off_kills_decor(self):
     self.assertFalse(self.find("burstLoader").property("active"))
 ```
 
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** the components per the Interfaces block; `ToastHost` exposes `count: int`; `CountUpText` exposes its rendered `text`.
-- [ ] **Step 4: Run** the test command. Expected: PASS.
-- [ ] **Step 5: Commit** `feat(gui): reusable motion primitives (button, ripple, toasts, burst, skeleton, count-up, pulse, ambient glow)`.
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** the components per the Interfaces block; `ToastHost` exposes `count: int`; `CountUpText` exposes its rendered `text`.
+- [x] **Step 4: Run** the test command. Expected: PASS.
+- [x] **Step 5: Commit** `feat(gui): reusable motion primitives (button, ripple, toasts, burst, skeleton, count-up, pulse, ambient glow)`.
 
 ---
 
@@ -234,7 +236,7 @@ def test_animations_off_kills_decor(self):
   - Fly-to: `Fx.flyRequested(from, count)` → an accent bubble with the count arcs from `from` (scene coords) to `downloadsAnchor`, ~900 ms, then the badge bumps.
   - Toasts: `downloadFinished` → `"Downloaded N chapters of <title>"` (`ok`; `error` kind with failed count if any); `jobError` → error toast; `updateCheckFinished` → `"Check finished — N series have new chapters"`.
 
-- [ ] **Step 1: Write failing tests** in `tests/test_shell.py`:
+- [x] **Step 1: Write failing tests** in `tests/test_shell.py`:
 
 ```python
 def test_switch_views_keeps_state(self):
@@ -251,10 +253,10 @@ def test_finished_download_toasts(self):
     self.assertEqual(self.find("toastHost").property("count"), 1)
 ```
 
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** per the Interfaces block. Give `SideBar` `objectName: "sideBar"`.
-- [ ] **Step 4: Run** the test command. Expected: PASS; manual check that clicking each tab animates and Library still refreshes on open.
-- [ ] **Step 5: Commit** `feat(gui): animated shell — sidebar indicator, view transitions, Downloads badge, toasts`.
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** per the Interfaces block. Give `SideBar` `objectName: "sideBar"`.
+- [x] **Step 4: Run** the test command. Expected: PASS; manual check that clicking each tab animates and Library still refreshes on open.
+- [x] **Step 5: Commit** `feat(gui): animated shell — sidebar indicator, view transitions, Downloads badge, toasts`.
 
 ---
 
@@ -277,7 +279,7 @@ def test_finished_download_toasts(self):
   - "Hold to reset to defaults" replaces the click button: fill grows left→right over 1400 ms while pressed; release early → fill drains back; completion → `SettingsBridge.resetToDefaults()` + toast.
   - Existing settings controls keep working (format, keep images, logs, path, workers, toomics fields).
 
-- [ ] **Step 1: Write failing tests** in `tests/test_settings_ui.py`:
+- [x] **Step 1: Write failing tests** in `tests/test_settings_ui.py`:
 
 ```python
 def test_theme_card_switches_theme(self):  # invoke the card's click handler for "neon"; pump 900ms; theme == "neon", themeWipe.active False
@@ -291,10 +293,10 @@ def test_hold_reset_requires_full_hold(self):  # press 500ms + release → no re
 
 and in the software-backend class: `test_theme_switch_software_backend` (switch, pump, theme changed, no warnings).
 
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** per the Interfaces block.
-- [ ] **Step 4: Run** the test command. Expected: PASS; manual check of the wipe in the real app on all three themes.
-- [ ] **Step 5: Commit** `feat(gui): animated settings drawer, theme picker with colour wipe, hold-to-reset`.
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** per the Interfaces block.
+- [x] **Step 4: Run** the test command. Expected: PASS; manual check of the wipe in the real app on all three themes.
+- [x] **Step 5: Commit** `feat(gui): animated settings drawer, theme picker with colour wipe, hold-to-reset`.
 
 ---
 
@@ -312,11 +314,11 @@ and in the software-backend class: `test_theme_switch_software_backend` (switch,
   - Fetching: `MangaCard` shows a skeleton (cover block + 5 lines) while the fetch is in flight.
   - Loaded: cover starts blurred (MultiEffect blur 1→0, skip in software) and scale .92→1 with spring, then one light sweep across it; title letters rise in 40 ms apart (Repeater of characters); tags pop in staggered 70 ms after 600 ms; numeric stats use `CountUpText`; description collapsed to 2 lines with "Read more ▼ / Show less ▲" animating height.
 
-- [ ] **Step 1: Write failing tests:** `test_match_state_on_known_url` (set field text to `https://toonily.com/serie/x/` → url box `matched` property true, fetch button `ready` true); `test_shake_on_unknown_enter` (unknown text + Enter → `shaking` true then false within 600 ms, no fetch call — spy `MangaBridge.fetchManga` via a counting wrapper); `test_skeleton_while_fetching` (emit the fetch-started signal → `mangaCard.loading` true; emit loaded → false).
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement**; expose `matched`, `ready`, `shaking`, `loading` as properties with objectNames `urlInput`, `fetchButton`, `mangaCard`.
-- [ ] **Step 4: Run** the test command. Expected: PASS; manual fetch of a real toonily URL looks right.
-- [ ] **Step 5: Commit** `feat(gui): animated URL input and manga card reveal`.
+- [x] **Step 1: Write failing tests:** `test_match_state_on_known_url` (set field text to `https://toonily.com/serie/x/` → url box `matched` property true, fetch button `ready` true); `test_shake_on_unknown_enter` (unknown text + Enter → `shaking` true then false within 600 ms, no fetch call — spy `MangaBridge.fetchManga` via a counting wrapper); `test_skeleton_while_fetching` (emit the fetch-started signal → `mangaCard.loading` true; emit loaded → false).
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement**; expose `matched`, `ready`, `shaking`, `loading` as properties with objectNames `urlInput`, `fetchButton`, `mangaCard`.
+- [x] **Step 4: Run** the test command. Expected: PASS; manual fetch of a real toonily URL looks right.
+- [x] **Step 5: Commit** `feat(gui): animated URL input and manga card reveal`.
 
 ---
 
@@ -336,11 +338,11 @@ and in the software-backend class: `test_theme_switch_software_backend` (switch,
   - Format selector (CBZ / PDF / Images) with a spring-sliding highlight pill, bound two-way to `SettingsBridge.outputFormat` (`cbz|pdf|images`).
   - Download button: `FxButton` with a periodic light sheen; hint line "N chapters as CBZ" / "Select some chapters first"; with 0 selected the button shakes instead of dispatching; otherwise it dispatches exactly as today, then emits `Fx.flyRequested(buttonCentreInScene, N)`.
 
-- [ ] **Step 1: Write failing tests:** `test_filter_hides_rows` (load 10 chapters via the list's model API, set filter "1" → visible count = rows whose number/title contains "1"); `test_select_all_visible_only` (filter then Select All → `getSelectedChapters()` length == visible count); `test_shift_click_range` (click row 2, shift-click row 5 → 4 selected); `test_format_selector_writes_setting` (choose PDF → `SettingsBridge.outputFormat == "pdf"`; set setting to "images" → selector index 2); `test_download_with_none_selected_does_not_dispatch` (spy `startDownload` call count stays 0).
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** per the Interfaces block.
-- [ ] **Step 4: Run** the test command. Expected: PASS; manual: real series with 100+ chapters scrolls smoothly.
-- [ ] **Step 5: Commit** `feat(gui): animated chapter list with filter and range select; format selector; fly-to download`.
+- [x] **Step 1: Write failing tests:** `test_filter_hides_rows` (load 10 chapters via the list's model API, set filter "1" → visible count = rows whose number/title contains "1"); `test_select_all_visible_only` (filter then Select All → `getSelectedChapters()` length == visible count); `test_shift_click_range` (click row 2, shift-click row 5 → 4 selected); `test_format_selector_writes_setting` (choose PDF → `SettingsBridge.outputFormat == "pdf"`; set setting to "images" → selector index 2); `test_download_with_none_selected_does_not_dispatch` (spy `startDownload` call count stays 0).
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** per the Interfaces block.
+- [x] **Step 4: Run** the test command. Expected: PASS; manual: real series with 100+ chapters scrolls smoothly.
+- [x] **Step 5: Commit** `feat(gui): animated chapter list with filter and range select; format selector; fly-to download`.
 
 ---
 
@@ -360,11 +362,11 @@ and in the software-backend class: `test_theme_switch_software_backend` (switch,
   - "Check for new": button narrows into a circular spinner while `checkingUrls[url]`; result "✦ N new" pops in with `CountUpText`; "Download N new" → card shows a progress ring and "Downloading N new chapters…" (existing status text) → on `libraryJobFinished` a drawn checkmark + "Downloaded N new chapters" (existing message logic from the 2026-10-24 fix), `ParticleBurst.burst()`, toast.
   - "✦ Check for Updates" toolbar button uses `PulseRings` while the bulk check runs.
 
-- [ ] **Step 1: Write failing tests:** `test_library_loads_260_entries_clean` (point `LibraryBridge` at a fixture `library.json` with 260 generated entries; open Library; no warnings; all cards visible after `staggerDelay(259)+800` ms); `test_flip_and_unflip` (click ⓘ on card 0 → `flipped` true; send hover-exit → false); `test_job_finished_shows_done` (emit `libraryJobFinished(url, 3, 0)` → card status text == "Downloaded 3 new chapters").
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** per the Interfaces block (`LibraryCard` exposes `flipped`).
-- [ ] **Step 4: Run** the test command. Expected: PASS; manual: scroll the real library — no stutter.
-- [ ] **Step 5: Commit** `feat(gui): animated library — staggered cards, tilt, flip, check/download morphs`.
+- [x] **Step 1: Write failing tests:** `test_library_loads_260_entries_clean` (point `LibraryBridge` at a fixture `library.json` with 260 generated entries; open Library; no warnings; all cards visible after `staggerDelay(259)+800` ms); `test_flip_and_unflip` (click ⓘ on card 0 → `flipped` true; send hover-exit → false); `test_job_finished_shows_done` (emit `libraryJobFinished(url, 3, 0)` → card status text == "Downloaded 3 new chapters").
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** per the Interfaces block (`LibraryCard` exposes `flipped`).
+- [x] **Step 4: Run** the test command. Expected: PASS; manual: scroll the real library — no stutter.
+- [x] **Step 5: Commit** `feat(gui): animated library — staggered cards, tilt, flip, check/download morphs`.
 
 ---
 
@@ -380,11 +382,11 @@ and in the software-backend class: `test_theme_switch_software_backend` (switch,
   - Updates: series rows rise in staggered; chapter chips pop (scale .8→1.15→1) when toggled on, glow when selected; the "Download N chapters" button's N uses `CountUpText` (from the previous value); skeleton rows while a check is running and the list is empty.
   - Downloads: job cards rise in; progress bar fill = flowing accent2→accent→highlight gradient + moving shimmer + glow, width animated; chapter rows slide in from −8 px and their status colour animates to success on completion; on `downloadFinished` the card flashes a glow ring once and `burst()`s; "Preparing…" state uses `PulseRings` small.
 
-- [ ] **Step 1: Write failing tests:** `test_updates_counter_tracks_selection` (load a pending fixture; untoggle one chip → button count value decreases by 1); `test_job_card_finishes` (emit `jobStarted` + `chapterProgress` + `downloadFinished` → card `finished` true, no warnings).
-- [ ] **Step 2: Run** the test command. Expected: FAIL.
-- [ ] **Step 3: Implement** per the Interfaces block.
-- [ ] **Step 4: Run** the test command. Expected: PASS.
-- [ ] **Step 5: Commit** `feat(gui): animated updates review and download job cards`.
+- [x] **Step 1: Write failing tests:** `test_updates_counter_tracks_selection` (load a pending fixture; untoggle one chip → button count value decreases by 1); `test_job_card_finishes` (emit `jobStarted` + `chapterProgress` + `downloadFinished` → card `finished` true, no warnings).
+- [x] **Step 2: Run** the test command. Expected: FAIL.
+- [x] **Step 3: Implement** per the Interfaces block.
+- [x] **Step 4: Run** the test command. Expected: PASS.
+- [x] **Step 5: Commit** `feat(gui): animated updates review and download job cards`.
 
 ---
 
@@ -394,8 +396,8 @@ and in the software-backend class: `test_theme_switch_software_backend` (switch,
 - Modify: any QML file where the pass finds issues; `CLAUDE.md` (changelog entry + "Conventions" note on `Style`/`Theme`/`Fx` and the QJSEngine tests; repo-layout lines for `gui/app.py`, `gui/qml/Style`, `gui/qml/fx`, `gui/qml/logic`, `tests/`); `.gitignore` (add `.superpowers/`)
 - Test: `tests/test_final.py`
 
-- [ ] **Step 1: Write failing tests:** `test_everything_instant_when_animations_off` (animations off; open drawer → drawer `x` at final value after one `pump(16)`; switch views → incoming view opacity 1 after `pump(16)`); `test_cpu_full_walkthrough` (software backend: open each view, open drawer, switch theme, start/finish a fake job via signals — zero QML warnings).
-- [ ] **Step 2: Run** the test command. Expected: FAIL where gaps remain.
-- [ ] **Step 3: Fix** the gaps. Run the real app on all three themes, with animations on and off, and with `--cpu`; check text contrast and that nothing waits on an animation.
-- [ ] **Step 4: Run** the full test command. Expected: all PASS.
-- [ ] **Step 5: Commit** `chore(gui): animations-off + software-rendering pass; docs`.
+- [x] **Step 1: Write failing tests:** `test_everything_instant_when_animations_off` (animations off; open drawer → drawer `x` at final value after one `pump(16)`; switch views → incoming view opacity 1 after `pump(16)`); `test_cpu_full_walkthrough` (software backend: open each view, open drawer, switch theme, start/finish a fake job via signals — zero QML warnings).
+- [x] **Step 2: Run** the test command. Expected: FAIL where gaps remain.
+- [x] **Step 3: Fix** the gaps. Run the real app on all three themes, with animations on and off, and with `--cpu`; check text contrast and that nothing waits on an animation.
+- [x] **Step 4: Run** the full test command. Expected: all PASS.
+- [x] **Step 5: Commit** `chore(gui): animations-off + software-rendering pass; docs`.
